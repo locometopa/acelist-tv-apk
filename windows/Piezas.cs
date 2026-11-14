@@ -128,7 +128,7 @@ sealed class BotonRiel : Control
     {
         Glifo = glifo;
         Etiqueta = etiqueta;
-        Size = new Size(68, 58);
+        Size = new Size(44, 44);
         Cursor = Cursors.Hand;
         TabStop = false;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
@@ -149,11 +149,11 @@ sealed class BotonRiel : Control
             using var pincel = new SolidBrush(Activo ? Tema.Panel1 : Color.FromArgb(40, 40, 40));
             g.FillPath(pincel, forma);
         }
-        if (Activo) { using var a = new SolidBrush(Tema.Acento); g.FillRectangle(a, 0, 19, 3, 20); }
+        if (Activo) { using var a = new SolidBrush(Tema.Acento); g.FillRectangle(a, 0, Height / 2 - 9, 3, 18); }
         Color color = !Enabled ? Color.FromArgb(100, 100, 100) : Encendido ? Tema.Acento : Activo ? Tema.Texto : Tema.Tenue;
         const TextFormatFlags centro = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
-        TextRenderer.DrawText(g, Glifo, Tema.Iconos, new Rectangle(0, 7, Width, 26), color, centro);
-        TextRenderer.DrawText(g, Etiqueta, Tema.Pequena, new Rectangle(0, 34, Width, 18), color, centro);
+        // Solo el icono (el nombre sale al pasar el ratón): el menú es estrecho y no se mueve
+        TextRenderer.DrawText(g, Glifo, Tema.Iconos, new Rectangle(0, 0, Width, Height), color, centro);
     }
 }
 
@@ -162,6 +162,7 @@ sealed class Tarjeta : Control
 {
     public readonly Evento Ev;
     public readonly Canal Donde;
+    public bool Compacta;     // destacados de Hoy: más baja, el partido en una línea
     bool encima;
 
     public Tarjeta(Evento ev, Canal donde)
@@ -191,6 +192,7 @@ sealed class Tarjeta : Control
         var r = new Rectangle(0, 0, Width - 1, Height - 1);
         using var forma = Tema.Redondeado(r, 8);
         using (var b = new SolidBrush(Tema.Panel1)) g.FillPath(b, forma);
+        if (Compacta) { PintarCompacta(g, forma); return; }
         var estadoGrafico = g.Save();
         g.SetClip(forma, CombineMode.Intersect);
         using (var b = new SolidBrush(Color.FromArgb(38, 38, 38))) g.FillRectangle(b, 0, 0, Width, 58);
@@ -222,6 +224,31 @@ sealed class Tarjeta : Control
         string donde = Donde.Titulo + (Donde.Enlaces.Count > 1 ? $" · {Donde.Enlaces.Count} enlaces" : "");
         TextRenderer.DrawText(g, donde, Tema.Pequena, new Rectangle(14, Height - 36, Width - 28, 22), Tema.Tenue, corta);
     }
+
+    void PintarCompacta(Graphics g, GraphicsPath forma)
+    {
+        const TextFormatFlags corta = TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
+        bool vivo = !Ev.Aplazado && Ev.Vivo;
+        using (var borde = new Pen(encima ? Tema.Acento : vivo ? Color.FromArgb(150, 60, 60) : Tema.Linea, vivo || encima ? 2 : 1)) g.DrawPath(borde, forma);
+        string dia = Ev.Inicio.Date == DateTime.Today ? "" : Ev.Inicio.Date == DateTime.Today.AddDays(1) ? "Mañana " : Ev.Inicio.ToString("ddd ");
+        string cuando = Ev.Aplazado ? "APLAZADO" : vivo ? "EN DIRECTO" : dia + Ev.Inicio.ToString("HH:mm");
+        var tam = TextRenderer.MeasureText(g, cuando, Tema.Pequena, new Size(1000, 30), TextFormatFlags.NoPadding);
+        var insignia = new Rectangle(Width - tam.Width - 30, 12, tam.Width + 16, 22);
+        using (var f2 = Tema.Redondeado(insignia, 4))
+        using (var b = new SolidBrush(vivo ? Tema.Directo : Tema.Panel2)) g.FillPath(b, f2);
+        TextRenderer.DrawText(g, cuando, Tema.Pequena, insignia, vivo ? Color.White : Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        string comp = (Ev.Competicion.Length > 0 ? Ev.Competicion : Ev.Deporte).ToUpperInvariant();
+        TextRenderer.DrawText(g, comp, Tema.Pequena, new Rectangle(16, 12, Math.Max(10, insignia.Left - 24), 22), Tema.Tenue, corta);
+        TextRenderer.DrawText(g, Ev.Titulo.Replace(" - ", " – "), Tema.Negrita, new Rectangle(16, 42, Width - 32, 30), Tema.Texto, corta);
+        // Canal con su punto de estado y el botón de ver
+        int yPie = Height - 38;
+        using (var p = new SolidBrush(Donde.Vivo ? Color.FromArgb(90, 200, 120) : Donde.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : Color.FromArgb(150, 150, 150)))
+            g.FillEllipse(p, 16, yPie + 10, 9, 9);
+        TextRenderer.DrawText(g, Donde.Titulo, Tema.Normal, new Rectangle(32, yPie, Width - 90, 28), Tema.Texto, corta);
+        var play = new Rectangle(Width - 46, yPie - 2, 30, 30);
+        using (var b = new SolidBrush(vivo ? Tema.Acento : Tema.Panel2)) g.FillEllipse(b, play);
+        TextRenderer.DrawText(g, "\uE768", Tema.IconosPeq, play, vivo ? Tema.Fondo : Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
 }
 
 // Colores de los menús desplegables (el de Ajustes y el del botón derecho)
@@ -249,6 +276,9 @@ sealed class VistaAgenda : Panel
     readonly BarraFiltros chips = new() { Dock = DockStyle.Top };
     readonly ListBox lista = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawVariable, BorderStyle = BorderStyle.None, IntegralHeight = false, BackColor = Tema.Principal, ForeColor = Tema.Texto };
     List<Evento> eventos = new();
+    DateTime? dia = DateTime.Today;   // null = todos los días
+    readonly Panel destacados = new() { Dock = DockStyle.Top, Height = 0, BackColor = Tema.Principal, Padding = new Padding(14, 12, 14, 0) };
+    readonly List<Tarjeta> tarjetas = new();
     string deporte = "";      // "" = todos los deportes
     string texto = "";
     bool soloConCanal = true;
@@ -267,6 +297,8 @@ sealed class VistaAgenda : Panel
         Visible = false;
         Controls.Add(lista);
         Controls.Add(chips);
+        Controls.Add(destacados);
+        destacados.Resize += (_, _) => ColocarDestacados();
         lista.MeasureItem += (_, e) => e.ItemHeight = e.Index >= 0 && e.Index < lista.Items.Count && lista.Items[e.Index] is Cab ? 46 : 66;
         lista.DrawItem += Pintar;
         lista.SelectedIndexChanged += (_, _) =>
@@ -289,7 +321,36 @@ sealed class VistaAgenda : Panel
         lista.Resize += (_, _) => lista.Invalidate();
     }
 
-    public string Texto { get => texto; set { texto = value ?? ""; Rellenar(false); } }
+    public string Texto { get => texto; set { texto = value ?? ""; MontarChips(); Rellenar(false); } }
+
+    // Los cuadrados de arriba (Hoy): los mejores eventos del día con canal mío
+    public void PonerDestacados(List<(Evento Ev, Canal Canal)> lista_)
+    {
+        destacados.SuspendLayout();
+        foreach (var t in tarjetas) { destacados.Controls.Remove(t); t.Dispose(); }
+        tarjetas.Clear();
+        foreach (var (ev, canal) in lista_.Take(3))
+        {
+            var tj = new Tarjeta(ev, canal) { Compacta = true, Height = 120 };
+            var e = ev;
+            tj.Click += (_, _) => Reproducir?.Invoke(e);
+            tarjetas.Add(tj);
+            destacados.Controls.Add(tj);
+        }
+        destacados.Height = tarjetas.Count > 0 ? 132 : 0;
+        destacados.ResumeLayout();
+        ColocarDestacados();
+    }
+
+    void ColocarDestacados()
+    {
+        if (tarjetas.Count == 0) return;
+        int hueco = 12, x = destacados.Padding.Left;
+        int ancho = (destacados.ClientSize.Width - destacados.Padding.Horizontal - hueco * 2) / 3;
+        foreach (var t in tarjetas) { t.SetBounds(x, destacados.Padding.Top, Math.Max(160, ancho), 120); x += ancho + hueco; }
+    }
+
+    public void Repintar() { foreach (var t in tarjetas) t.Invalidate(); lista.Invalidate(); }
 
     public void Cargar(List<Evento> nuevos)
     {
@@ -310,19 +371,71 @@ sealed class VistaAgenda : Panel
         return sb.ToString();
     }
 
+    static readonly System.Globalization.CultureInfo Es = System.Globalization.CultureInfo.GetCultureInfo("es-ES");
+    static string NombreDia(DateTime d)
+    {
+        if (d.Date == DateTime.Today) return "Hoy";
+        if (d.Date == DateTime.Today.AddDays(1)) return "Mañana";
+        string t = d.ToString("dddd d", Es);
+        return char.ToUpper(t[0]) + t[1..];
+    }
+
+    bool Pasa(Evento ev) => !soloConCanal || CanalDe(ev) != null;
+    bool DelDia(Evento ev) => dia == null || ev.Inicio.Date == dia.Value.Date || (ev.Vivo && dia.Value.Date == DateTime.Today);
+
+    // Una fila de selectores (día, qué eventos, deporte); cada uno abre su menú
     void MontarChips()
     {
+        bool buscando = Simple(texto).Trim().Length > 0;
         var l = new List<BarraFiltros.Filtro>
         {
-            new("Con mi canal", soloConCanal, () => { soloConCanal = !soloConCanal; CambioSoloConCanal?.Invoke(soloConCanal); MontarChips(); Rellenar(false); }, true),
-            new("Todos", deporte.Length == 0, () => { deporte = ""; MontarChips(); Rellenar(false); }, false),
+            new((buscando ? "Todos los días (buscando)" : dia == null ? "Todos los días" : NombreDia(dia.Value)) + "   ▾", false, MenuDias, false),
+            new((soloConCanal ? "Con mi canal" : "Todos los eventos") + "   ▾", false, MenuFiltro, false),
+            new((deporte.Length > 0 ? Icono(deporte) + "  " + deporte : "Todos los deportes") + "   ▾", deporte.Length > 0, MenuDeportes, false),
         };
-        foreach (var d in eventos.Where(e => e.Deporte.Length > 0).GroupBy(e => e.Deporte).OrderByDescending(g => g.Count()).Select(g => g.Key).Take(20))
-        {
-            string dep = d;
-            l.Add(new(Icono(dep) + "  " + dep, deporte == dep, () => { deporte = deporte == dep ? "" : dep; MontarChips(); Rellenar(false); }, false));
-        }
         chips.Poner(l);
+    }
+
+    void Menu(IEnumerable<(string Texto, bool Marcado, Action Hacer)> opciones)
+    {
+        var m = new ContextMenuStrip { Renderer = new ToolStripProfessionalRenderer(new ColoresOscuros()), ForeColor = Tema.Texto, Font = new Font("Segoe UI", 10f), ShowCheckMargin = true, ShowImageMargin = false };
+        foreach (var o in opciones)
+        {
+            var it = new ToolStripMenuItem(o.Texto) { Checked = o.Marcado, ForeColor = Tema.Texto, Padding = new Padding(0, 3, 0, 3) };
+            var hacer = o.Hacer;
+            it.Click += (_, _) => { hacer(); MontarChips(); Rellenar(true); };
+            m.Items.Add(it);
+        }
+        m.Closed += (_, _) => BeginInvoke(new Action(m.Dispose));
+        var r = chips.Pulsado;
+        m.Show(chips, new Point(r.Left, r.Bottom + 4));
+    }
+
+    void MenuDias()
+    {
+        var dias = eventos.Select(e => e.Inicio.Date).Where(d => d >= DateTime.Today).Distinct().OrderBy(d => d).Take(10).ToList();
+        if (!dias.Contains(DateTime.Today)) dias.Insert(0, DateTime.Today);
+        var ops = dias.Select(d => ($"{NombreDia(d)}   ({eventos.Count(e => Pasa(e) && (e.Inicio.Date == d || (d == DateTime.Today && e.Vivo)))})", dia?.Date == d, (Action)(() => { dia = d; deporte = ""; }))).ToList();
+        ops.Add(("Todos los días", dia == null, () => dia = null));
+        Menu(ops);
+    }
+
+    void MenuFiltro() => Menu(new (string, bool, Action)[]
+    {
+        ("Con mi canal (los que puedes ver)", soloConCanal, () => { soloConCanal = true; CambioSoloConCanal?.Invoke(true); }),
+        ("Todos los eventos", !soloConCanal, () => { soloConCanal = false; CambioSoloConCanal?.Invoke(false); }),
+    });
+
+    void MenuDeportes()
+    {
+        var del = eventos.Where(e => Pasa(e) && DelDia(e)).ToList();
+        var ops = new List<(string, bool, Action)> { ($"Todos los deportes   ({del.Count})", deporte.Length == 0, () => deporte = "") };
+        foreach (var g in del.Where(e => e.Deporte.Length > 0).GroupBy(e => e.Deporte).OrderByDescending(g => g.Count()))
+        {
+            string d = g.Key;
+            ops.Add(($"{Icono(d)}  {d}   ({g.Count()})", deporte == d, () => deporte = d));
+        }
+        Menu(ops);
     }
 
     static string Icono(string deporte)
@@ -347,6 +460,7 @@ sealed class VistaAgenda : Panel
         var vistos = eventos.Where(ev =>
             (deporte.Length == 0 || ev.Deporte == deporte) &&
             (palabras.Length > 0 || !soloConCanal || CanalDe(ev) != null) &&
+            (palabras.Length > 0 || DelDia(ev)) &&
             (palabras.Length == 0 || palabras.All(p => Simple(ev.Titulo + " " + ev.Competicion + " " + ev.Deporte).Contains(p)))).OrderBy(e => e.Inicio).ToList();
         object? antes = lista.SelectedItem;
         lista.BeginUpdate();
@@ -366,7 +480,7 @@ sealed class VistaAgenda : Panel
             if (primeroAhora < 0 && (ev.Vivo || ev.Inicio > ahora)) primeroAhora = lista.Items.Count;
             lista.Items.Add(ev);
         }
-        if (vistos.Count == 0) lista.Items.Add(new Cab(palabras.Length > 0 ? "Ningún evento con eso" : soloConCanal ? "Ningún evento de la agenda tiene canal entre tus listas (quita «Con mi canal» para ver todos)" : "No hay eventos en la agenda"));
+        if (vistos.Count == 0) lista.Items.Add(new Cab(palabras.Length > 0 ? "Ningún evento con eso" : soloConCanal ? "Ningún evento de este día tiene canal entre tus listas (elige «Todos los eventos» u otro día)" : "No hay eventos este día"));
         lista.EndUpdate();
         if (antes is Evento a && !irAhora)
         {
@@ -437,6 +551,7 @@ sealed class BarraFiltros : Control
 
     List<Filtro> filtros = new();
     readonly List<Rectangle> sitios = new();
+    public Rectangle Pulsado;      // el último filtro pulsado: su menú se abre debajo
     int encima = -1;
     const int Alto = 32, MargenX = 14, MargenY = 10, Hueco = 8;
 
@@ -497,6 +612,6 @@ sealed class BarraFiltros : Control
         base.OnMouseClick(e);
         if (e.Button != MouseButtons.Left) return;
         int i = sitios.FindIndex(r => r.Contains(e.Location));
-        if (i >= 0 && i < filtros.Count) BeginInvoke(filtros[i].Pulsar);
+        if (i >= 0 && i < filtros.Count) { Pulsado = sitios[i]; BeginInvoke(filtros[i].Pulsar); }
     }
 }

@@ -131,9 +131,8 @@ sealed class Ventana : Form
     readonly Panel cabecera = new() { Dock = DockStyle.Top, Height = 50, BackColor = Fondo };
     readonly Panel cajaBuscar = new() { Height = 34, Width = 440, BackColor = Fondo };
     readonly TextBox buscar = new() { BorderStyle = BorderStyle.None, PlaceholderText = "Buscar equipo, partido o canal  (Ctrl+B)", BackColor = Panel1, ForeColor = Texto };
-    readonly Panel riel = new() { Dock = DockStyle.Left, Width = 80, BackColor = Fondo };
+    readonly Panel riel = new() { Dock = DockStyle.Left, Width = 56, BackColor = Fondo };
     readonly BotonRiel rHoy = new("\uE80F", "Hoy");
-    readonly BotonRiel rAgenda = new("\uE787", "Agenda");
     readonly BotonRiel rCanales = new("\uE7F4", "Canales");
     readonly BotonRiel rFavoritos = new("\uE734", "Favoritos");
     readonly BotonRiel rLista = new("\uE8FD", "Lista");   // esconde o enseña la lista de canales
@@ -142,6 +141,8 @@ sealed class Ventana : Form
 
     readonly Panel cuerpo = new() { Dock = DockStyle.Fill, BackColor = Principal };
     readonly Panel inicio = new() { Dock = DockStyle.Fill, BackColor = Principal, AutoScroll = true, Visible = false };
+    readonly Panel ficha = new() { Dock = DockStyle.Right, Width = 290, BackColor = Principal, Visible = false };
+    readonly Button fichaVer = new(), fichaFav = new(), fichaTele = new();
     readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
     readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 38, ColumnCount = 2, RowCount = 1 };
     readonly Button pestCanales, pestAgenda;
@@ -164,7 +165,11 @@ sealed class Ventana : Form
     bool listaForzada;     // se está buscando con la lista escondida: se enseña mientras se busca, sin cambiar el ajuste
     bool EsVideo => seccion == Seccion.Canales || seccion == Seccion.Favoritos;
     void ParaBuscar() { if (ajustes.ListaOculta) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } }
-    void ColocarLateral() => lateral.Visible = EsVideo && !completa && !soloVideo && (!ajustes.ListaOculta || listaForzada);
+    void ColocarLateral()
+    {
+        lateral.Visible = EsVideo && !completa && !soloVideo && (!ajustes.ListaOculta || listaForzada);
+        ficha.Visible = EsVideo && !completa && cuerpo.ClientSize.Width >= (lateral.Visible ? 1000 : 700);
+    }
     sealed record Par(Evento Ev, Canal Canal);
     Seccion seccion = Seccion.Hoy;
     Canal? heroCanal;
@@ -286,23 +291,21 @@ sealed class Ventana : Form
         cabecera.Resize += (_, _) => ColocarCabecera();
 
         // ----- menú lateral -----
-        rHoy.Left = 6; rHoy.Top = 6;
-        rAgenda.Left = 6; rAgenda.Top = 68;
-        rCanales.Left = 6; rCanales.Top = 130;
-        rFavoritos.Left = 6; rFavoritos.Top = 192;
-        rLista.Left = 6; rLista.Top = 268;
+        // Menú de iconos (Hoy ya incluye la agenda)
+        rHoy.Left = 6; rHoy.Top = 8;
+        rCanales.Left = 6; rCanales.Top = 58;
+        rFavoritos.Left = 6; rFavoritos.Top = 108;
+        rLista.Left = 6; rLista.Top = 172;
         rVpn.Left = 6; rAjustes.Left = 6;
-        foreach (var r in new[] { rHoy, rAgenda, rCanales, rFavoritos, rLista, rVpn, rAjustes }) riel.Controls.Add(r);
-        riel.Resize += (_, _) => { rAjustes.Top = Math.Max(340, riel.ClientSize.Height - 64); rVpn.Top = rAjustes.Top - 62; };
+        foreach (var r in new[] { rHoy, rCanales, rFavoritos, rLista, rVpn, rAjustes }) riel.Controls.Add(r);
+        riel.Resize += (_, _) => { rAjustes.Top = Math.Max(280, riel.ClientSize.Height - 54); rVpn.Top = rAjustes.Top - 50; };
         rHoy.Click += (_, _) => Ir(Seccion.Hoy);
-        rAgenda.Click += (_, _) => Ir(Seccion.Agenda);
         rCanales.Click += (_, _) => Ir(Seccion.Canales);
         rFavoritos.Click += (_, _) => Ir(Seccion.Favoritos);
         rLista.Click += (_, _) => AlternarLista();
         rVpn.Click += (_, _) => MenuVpn();
         rAjustes.Click += (_, _) => AbrirAjustes();
-        ayudas.SetToolTip(rHoy, "Inicio: lo que echan ahora en tus canales (tecla H)");
-        ayudas.SetToolTip(rAgenda, "La agenda de eventos en lista, día a día (tecla G)");
+        ayudas.SetToolTip(rHoy, "Hoy: destacados y la agenda día a día (tecla H)");
         ayudas.SetToolTip(rCanales, "Todos tus canales");
         ayudas.SetToolTip(rFavoritos, "Tus canales favoritos");
         ayudas.SetToolTip(rLista, "Ocultar o mostrar la lista de canales para dejar más sitio al vídeo (tecla L)");
@@ -330,6 +333,10 @@ sealed class Ventana : Form
         cuerpo.Controls.Add(inicio);
         cuerpo.Controls.Add(vistaAgenda);
         cuerpo.Controls.Add(lateral);
+        cuerpo.Controls.Add(ficha);
+        MontarFicha();
+        cuerpo.Resize += (_, _) => ColocarLateral();
+        lista.SelectedIndexChanged += (_, _) => { ficha.Invalidate(); PonerBotonesFicha(); };
         Controls.Add(cuerpo);
         Controls.Add(barra);
         Controls.Add(riel);
@@ -393,7 +400,7 @@ sealed class Ventana : Form
         vigia.Start();
         refresco.Tick += (_, _) => _ = CargarCanales(false);
         refresco.Start();
-        reloj.Tick += (_, _) => { if (seccion == Seccion.Hoy && !completa) ComponerInicio(); };
+        reloj.Tick += (_, _) => { if (seccion == Seccion.Hoy && !completa) ComponerInicio(); if (ficha.Visible) ficha.Invalidate(); };
         reloj.Start();
         mirarVpn.Tick += (_, _) => _ = MirarVpn();
         mirarVpn.Start();
@@ -547,14 +554,125 @@ sealed class Ventana : Form
         Nativo.Oscurecer(this);
     }
 
+    // ---------- ficha del canal (derecha de Canales y Favoritos) ----------
+    Canal? CanalFicha() => lista.SelectedItem as Canal ?? (lista.SelectedItem is Evento e ? CanalDe(e) : null) ?? actual;
+
+    void MontarFicha()
+    {
+        foreach (var b in new[] { fichaVer, fichaFav, fichaTele })
+        {
+            b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderSize = 0; b.Height = 38; b.TabStop = false; b.Cursor = Cursors.Hand;
+            b.BackColor = Panel2; b.ForeColor = Texto; b.Font = Tema.Normal;
+            ficha.Controls.Add(b);
+        }
+        fichaVer.BackColor = Acento; fichaVer.ForeColor = Fondo; fichaVer.Font = Tema.Negrita; fichaVer.Text = "▶  Ver ahora";
+        fichaTele.Text = "Enviar a la tele";
+        fichaVer.Click += (_, _) => { if (CanalFicha() is { } c) Poner(c); };
+        fichaFav.Click += async (_, _) => { if (CanalFicha() is { } c) { await CambiarFavorito(c); PonerBotonesFicha(); ficha.Invalidate(); } };
+        fichaTele.Click += (_, _) => { if (CanalFicha() is { } c) _ = EnviarATele(c); };
+        ficha.Resize += (_, _) => PonerBotonesFicha();
+        ficha.Paint += PintarFicha;
+        SetStyleDoble(ficha);
+    }
+
+    static void SetStyleDoble(Control c) =>
+        typeof(Control).GetProperty("DoubleBuffered", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(c, true);
+
+    void PonerBotonesFicha()
+    {
+        int W = ficha.ClientSize.Width - 36, y = ficha.ClientSize.Height - 18 - 38;
+        fichaFav.SetBounds(18, y, (W - 8) / 2, 38);
+        fichaTele.SetBounds(18 + (W - 8) / 2 + 8, y, (W - 8) / 2, 38);
+        fichaVer.SetBounds(18, y - 46, W, 38);
+        var c = CanalFicha();
+        foreach (var b in new[] { fichaVer, fichaFav, fichaTele }) b.Visible = c != null;
+        if (c != null)
+        {
+            fichaFav.Text = c.Favorito ? "★  Favorito" : "☆  Favorito";
+            fichaVer.Text = actual != null && actual.Clave == c.Clave ? "↻  Volver a abrir" : "▶  Ver ahora";
+        }
+    }
+
+    void PintarFicha(object? s, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Principal);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var l = new Pen(Tema.Linea)) g.DrawLine(l, 0, 0, 0, ficha.Height);
+        const TextFormatFlags corta = TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter;
+        const TextFormatFlags varias = TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+        int W = ficha.ClientSize.Width - 36, x = 18, y = 20;
+        var c = CanalFicha();
+        if (c == null)
+        {
+            TextRenderer.DrawText(g, "Elige un canal de la lista para ver aquí su estado, qué echan y sus enlaces.", Tema.Normal, new Rectangle(x, y, W, 80), Tenue, varias);
+            return;
+        }
+        // Cabecera: iniciales, nombre y categoría
+        var logo = new Rectangle(x, y, 48, 48);
+        using (var f = Tema.Redondeado(logo, 8)) using (var b = new SolidBrush(Panel2)) g.FillPath(b, f);
+        string ini = new string(c.Titulo.Where(char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
+        TextRenderer.DrawText(g, ini.Length > 0 ? ini : "TV", Tema.Negrita, logo, Acento, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, c.Titulo, Tema.Negrita, new Rectangle(x + 60, y + 2, W - 60, 24), Texto, corta);
+        TextRenderer.DrawText(g, c.Categoria.Length > 0 ? c.Categoria : "Sin categoría", Tema.Pequena, new Rectangle(x + 60, y + 28, W - 60, 18), Tenue, corta);
+        y += 66;
+        // Estado
+        Color punto = c.EsTv || c.Vivo ? Color.FromArgb(90, 200, 120) : c.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : c.Estado == "mal" ? Color.FromArgb(229, 72, 77) : Color.FromArgb(150, 150, 150);
+        string est = c.EsTv ? "En abierto" : c.Vivo ? $"Vivo{(c.Peers > 0 ? $" · {c.Peers} peers" : "")}" : c.Estado == "no_peers" ? "Sin peers" : c.Estado == "mal" ? "Caído" : "Sin comprobar";
+        if (actual != null && actual.Clave == c.Clave) est += " · viéndolo";
+        using (var p = new SolidBrush(punto)) g.FillEllipse(p, x, y + 6, 9, 9);
+        TextRenderer.DrawText(g, est, Tema.Normal, new Rectangle(x + 16, y, W - 16, 22), Texto, corta);
+        y += 34;
+        // Ahora (con barra de progreso si es un evento de la agenda en directo)
+        if (!string.IsNullOrWhiteSpace(c.Ahora))
+        {
+            var caja = new Rectangle(x, y, W, 86);
+            using (var f = Tema.Redondeado(caja, 8)) using (var b = new SolidBrush(Panel1)) g.FillPath(b, f);
+            TextRenderer.DrawText(g, "AHORA", Tema.Pequena, new Rectangle(x + 12, y + 10, W - 24, 16), Tenue, corta);
+            TextRenderer.DrawText(g, c.Ahora!, Tema.Negrita, new Rectangle(x + 12, y + 28, W - 24, 40), Texto, varias);
+            var ev = agenda.FirstOrDefault(a => a.Vivo && !a.Aplazado && a.Claves.Contains(c.Clave));
+            if (ev != null)
+            {
+                double prog = Math.Clamp((DateTime.Now - ev.Inicio).TotalMinutes / 120.0, 0.02, 1);
+                using (var b = new SolidBrush(Tema.Linea)) g.FillRectangle(b, x + 12, y + 72, W - 24, 4);
+                using (var b = new SolidBrush(Acento)) g.FillRectangle(b, x + 12, y + 72, (int)((W - 24) * prog), 4);
+            }
+            y += 98;
+        }
+        if (!string.IsNullOrWhiteSpace(c.Luego))
+        {
+            TextRenderer.DrawText(g, "DESPUÉS", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
+            TextRenderer.DrawText(g, c.Luego!, Tema.Normal, new Rectangle(x, y + 20, W, 40), Texto, varias);
+            y += 66;
+        }
+        // Enlaces
+        int tope = ficha.ClientSize.Height - 18 - 38 - 46 - 16;
+        if (c.Enlaces.Count > 0 && y + 40 < tope)
+        {
+            TextRenderer.DrawText(g, c.Enlaces.Count == 1 ? "ENLACE" : $"ENLACES ({c.Enlaces.Count})", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
+            y += 22;
+            for (int i = 0; i < c.Enlaces.Count && y + 22 < tope; i++)
+            {
+                var en = c.Enlaces[i];
+                bool puesto = actual != null && actual.Clave == c.Clave && enlace == i;
+                Color pe = en.Url != null || en.Estado == "alive" ? Color.FromArgb(90, 200, 120) : en.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : en.Estado.Length == 0 ? Color.FromArgb(150, 150, 150) : Color.FromArgb(229, 72, 77);
+                using (var p = new SolidBrush(pe)) g.FillEllipse(p, x, y + 6, 8, 8);
+                string txt = $"{(puesto ? "▶ " : "")}Enlace {i + 1}{(en.Url != null ? " · TV" : en.Peers > 0 ? $" · {en.Peers} peers" : en.Estado == "no_peers" ? " · sin peers" : "")}";
+                TextRenderer.DrawText(g, txt, Tema.Normal, new Rectangle(x + 16, y, W - 16, 20), puesto ? Acento : Texto, corta);
+                y += 24;
+            }
+        }
+    }
+
     void Ir(Seccion s)
     {
+        if (s == Seccion.Agenda) s = Seccion.Hoy;   // la agenda está dentro de Hoy
         seccion = s;
         soloVideo = false;
         listaForzada = false;
         bool video_ = s == Seccion.Canales || s == Seccion.Favoritos;
-        inicio.Visible = s == Seccion.Hoy;
-        vistaAgenda.Visible = s == Seccion.Agenda;
+        inicio.Visible = false;
+        vistaAgenda.Visible = s == Seccion.Hoy;
         video.Visible = video_;
         ColocarLateral();
         if (video_)
@@ -568,8 +686,7 @@ sealed class Ventana : Form
             Filtrar();
             lista.Focus();
         }
-        else if (s == Seccion.Agenda) { vistaAgenda.Cargar(agenda); vistaAgenda.Texto = buscar.Text; vistaAgenda.Enfocar(); }
-        else ComponerInicio();
+        else { vistaAgenda.Cargar(agenda); ComponerInicio(); vistaAgenda.Enfocar(); }
         ActualizarRiel();
     }
 
@@ -587,30 +704,31 @@ sealed class Ventana : Form
     {
         bool favs = categorias.SelectedIndex == 1;
         rHoy.Activo = seccion == Seccion.Hoy;
-        rAgenda.Activo = seccion == Seccion.Agenda;
         rCanales.Activo = EsVideo && !favs;
         rFavoritos.Activo = EsVideo && favs;
         rLista.Encendido = lateral.Visible;
         rLista.Enabled = EsVideo;
-        rHoy.Invalidate(); rAgenda.Invalidate(); rCanales.Invalidate(); rFavoritos.Invalidate(); rLista.Invalidate();
+        rHoy.Invalidate(); rCanales.Invalidate(); rFavoritos.Invalidate(); rLista.Invalidate();
     }
 
     // Escribir en el buscador desde «Hoy» lleva a la lista: a canales si hay un canal con ese nombre, y si no a la agenda (equipos)
     void AlBuscar()
     {
-        if (seccion == Seccion.Agenda) { vistaAgenda.Texto = buscar.Text; return; }
+
         if (ajustes.ListaOculta && EsVideo) { if (buscar.Text.Trim().Length > 0) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } }
         if (seccion == Seccion.Hoy && buscar.Text.Trim().Length > 0)
         {
             var palabras = SinTildes(buscar.Text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
             bool esCanal = todos.Any(c => palabras.All(p => SinTildes(c.Titulo).Contains(p)));
+            if (!esCanal) { vistaAgenda.Texto = buscar.Text; return; }   // un equipo o partido: se busca en la agenda de Hoy
             Ir(Seccion.Canales);
             ParaBuscar();
-            if (esCanal == enAgenda) PonerPestana(!esCanal);
+            if (enAgenda) PonerPestana(false);
             buscar.Focus();
             buscar.SelectionStart = buscar.Text.Length;
             return;
         }
+        if (seccion == Seccion.Hoy) { vistaAgenda.Texto = ""; return; }
         // Si escribes estando en Favoritos, se sale de ahí para buscar en todos los canales
         if (buscar.Text.Trim().Length > 0 && (seccion == Seccion.Favoritos || categorias.SelectedIndex == 1))
         {
@@ -637,70 +755,17 @@ sealed class Ventana : Form
     // ---------- inicio: los partidos de hoy en mis canales ----------
     static string Ver(int n, string uno, string varios) => n == 1 ? uno : varios;
 
+    // Hoy: los tres mejores eventos del día con canal mío (en directo y vivos primero) encima de la agenda
     void ComponerInicio()
     {
         if (IsDisposed) return;
-        var posicion = inicio.AutoScrollPosition;
-        inicio.SuspendLayout();
-        foreach (var c in inicio.Controls.Cast<Control>().ToArray()) { inicio.Controls.Remove(c); c.Dispose(); }
-        filasInicio.Clear();
-        heroPanel = null; heroPlay = null; heroTag = null; heroTitulo = null; heroLinea = null; heroVer = null; heroFav = null; mensajeInicio = null; heroCanal = null;
-
         var ahora = DateTime.Now;
-        var conCanal = agenda.Where(e => !e.Aplazado)
-            .Select(e => new Par(e, CanalDe(e)!)).Where(x => x.Canal != null && !x.Canal.Apagada).OrderBy(x => x.Ev.Inicio).ToList();
-        var vivos = conCanal.Where(x => x.Ev.Inicio <= ahora && x.Ev.Inicio > ahora.AddHours(-3)).ToList();
-        var luego = conCanal.Where(x => x.Ev.Inicio > ahora && x.Ev.Inicio.Date == ahora.Date).ToList();
-        string tituloLuego = luego.Count > 0 && luego[0].Ev.Inicio.Hour >= 20 ? "Esta noche" : "Más tarde hoy";
-        if (luego.Count == 0)
-        {
-            var otro = conCanal.FirstOrDefault(x => x.Ev.Inicio.Date > ahora.Date);
-            if (otro != null)
-            {
-                luego = conCanal.Where(x => x.Ev.Inicio.Date == otro.Ev.Inicio.Date).ToList();
-                tituloLuego = otro.Ev.Inicio.Date == ahora.Date.AddDays(1) ? "Mañana" : otro.Ev.Inicio.ToString("dddd d");
-            }
-        }
-        var destacado = vivos.FirstOrDefault(x => x.Canal.Vivo) ?? vivos.FirstOrDefault() ?? luego.FirstOrDefault();
-
-        if (destacado == null)
-        {
-            string txt = todos.Count == 0 ? "Cargando los canales del servidor…"
-                : !agrupado ? "El servidor todavía no entrega la agenda de partidos: actualízalo desde su panel."
-                : agenda.Count == 0 ? "No hay partidos en la agenda ahora mismo. Mira tus canales en el menú de la izquierda."
-                : "Ningún partido de la agenda tiene canal entre tus listas. Mira la agenda completa o tus canales.";
-            mensajeInicio = new Label { Text = txt, ForeColor = Tenue, Font = Tema.Seccion, AutoSize = false, BackColor = Principal };
-            inicio.Controls.Add(mensajeInicio);
-        }
-        else
-        {
-            var ev = destacado.Ev; var canal = destacado.Canal;
-            heroCanal = canal;
-            bool vivo = ev.Inicio <= ahora;
-            heroPanel = new Panel { BackColor = Panel1 };
-            string comp = ev.Competicion.Length > 0 ? ev.Competicion : ev.Deporte;
-            heroTag = new Label { Text = (vivo ? "EN DIRECTO" : $"A LAS {ev.Inicio:HH:mm}") + (comp.Length > 0 ? " · " + comp.ToUpperInvariant() : ""), ForeColor = vivo ? Directo : Acento, Font = Tema.Pequena, AutoSize = false, BackColor = Panel1 };
-            heroTitulo = new Label { Text = ev.Titulo.Replace(" - ", " – "), ForeColor = Texto, Font = Tema.Grande, AutoSize = false, AutoEllipsis = true, BackColor = Panel1 };
-            string peers = canal.Peers > 0 ? $", el mejor con {canal.Peers} peers" : "";
-            heroLinea = new Label { Text = $"En {canal.Titulo} · {canal.Enlaces.Count} {Ver(canal.Enlaces.Count, "enlace", "enlaces")}{peers}." + (canal.Enlaces.Count > 1 ? " Si uno se corta, pasa solo al siguiente." : ""), ForeColor = Tenue, Font = Tema.Normal, AutoSize = false, AutoEllipsis = true, BackColor = Panel1 };
-            heroVer = BotonGrande("▶  Ver ahora", true);
-            heroVer.Click += (_, _) => Poner(canal);
-            heroFav = BotonGrande(canal.Favorito ? "★  En favoritos" : "☆  Añadir a favoritos", false);
-            heroFav.Click += (_, _) => _ = CambiarFavorito(canal);
-            heroPlay = new Panel { BackColor = Color.Black, Dock = DockStyle.Right, Width = 360, Cursor = Cursors.Hand };
-            var triangulo = new Label { Text = "▶", ForeColor = Color.FromArgb(90, 90, 90), Font = Tema.Titanico, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand };
-            heroPlay.Controls.Add(triangulo);
-            heroPlay.Click += (_, _) => Poner(canal);
-            triangulo.Click += (_, _) => Poner(canal);
-            heroPanel.Controls.AddRange(new Control[] { heroPlay, heroTag, heroTitulo, heroLinea, heroVer, heroFav });
-            inicio.Controls.Add(heroPanel);
-
-            if (vivos.Count > 0) AñadirFila("En directo ahora", $"{vivos.Count} {Ver(vivos.Count, "partido", "partidos")} en tus canales", vivos);
-            if (luego.Count > 0) AñadirFila(tituloLuego, $"desde las {luego[0].Ev.Inicio:HH:mm}", luego);
-        }
-        inicio.ResumeLayout();
-        ColocarInicio();
-        inicio.AutoScrollPosition = new Point(-posicion.X, -posicion.Y);
+        var pares = agenda.Where(e => !e.Aplazado && (e.Vivo || (e.Inicio > ahora && e.Inicio.Date == ahora.Date)))
+            .Select(e => (Ev: e, Canal: CanalDe(e)!)).Where(x => x.Canal != null && !x.Canal.Apagada && !x.Ev.Posible)
+            .Select(x => (x.Ev, x.Canal, Nota: (x.Ev.Vivo ? 50 : 0) + (x.Canal.Vivo ? 30 : 0) + (x.Ev.Favorito ? 25 : 0) + (x.Canal.Favorito ? 10 : 0) - (x.Ev.Vivo ? 0 : (x.Ev.Inicio - ahora).TotalHours)))
+            .OrderByDescending(x => x.Nota).Take(3).OrderBy(x => x.Ev.Inicio).Select(x => (x.Ev, x.Canal)).ToList();
+        vistaAgenda.PonerDestacados(pares);
+        vistaAgenda.Repintar();
     }
 
     Button BotonGrande(string texto, bool principal)
@@ -820,7 +885,7 @@ sealed class Ventana : Form
             RellenarCategorias();
             Filtrar();
             ComponerInicio();
-            if (seccion == Seccion.Agenda) vistaAgenda.Cargar(agenda);
+            if (seccion == Seccion.Hoy) vistaAgenda.Cargar(agenda);
             pieBase = $"{Srv}{(Srv == ajustes.ServidorExterno ? " (Tailscale)" : "")} · {todos.Count(c => !c.Apagada)} canales · {todos.Count(c => c.Vivo && !c.Apagada)} funcionan" + (simple ? "" : " · servidor sin actualizar");
             ActualizarPie();
         }
@@ -1084,7 +1149,7 @@ sealed class Ventana : Form
         ajustes.Guardar();
         listaForzada = false;
         ColocarLateral();
-        if (seccion == Seccion.Agenda) vistaAgenda.Cargar(agenda);
+        if (seccion == Seccion.Hoy) vistaAgenda.Cargar(agenda);
         PonerPestana(enAgenda);
         ActualizarRiel();
         if (servidorCambia) { srv = ""; _ = CargarCanales(true); _ = MirarVpn(); }
@@ -1767,6 +1832,7 @@ sealed class Ventana : Form
 
     void Poner(Canal c)
     {
+        if (IsHandleCreated) BeginInvoke(new Action(() => { ficha.Invalidate(); PonerBotonesFicha(); }));
         actual = c;
         enlace = 0;
         intentos = 0;
@@ -1960,6 +2026,7 @@ sealed class Ventana : Form
             estadoAntes = WindowState;
             limitesAntes = Bounds;
             lateral.Visible = false;
+            ficha.Visible = false;
             riel.Visible = false;
             cabecera.Visible = false;
             WindowState = FormWindowState.Normal;
@@ -2003,7 +2070,7 @@ sealed class Ventana : Form
             case Keys.Escape: if (completa) { PantallaCompleta(false); return true; } break;
             case Keys.F: PantallaCompleta(!completa); return true;
             case Keys.L: if (!completa && EsVideo) { AlternarLista(); return true; } break;
-            case Keys.G: if (!completa) { Ir(seccion == Seccion.Agenda ? Seccion.Canales : Seccion.Agenda); return true; } break;
+            case Keys.G: if (!completa) { Ir(seccion == Seccion.Hoy ? Seccion.Canales : Seccion.Hoy); return true; } break;
             case Keys.Enter:
                 if (!completa) { if (seccion == Seccion.Hoy) { if (heroCanal != null) Poner(heroCanal); } else if (EsVideo) ReproducirSeleccionado(); }
                 return true;
