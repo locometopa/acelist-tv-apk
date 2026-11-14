@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.59.2';
+const VERSION = '0.60.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -1096,8 +1096,10 @@ function ayudaVpnCasa() {
   const c = ui.casa?.vpnCambio || {};
   const actual = v?.activa ? (/proton/i.test(v.proveedor || '') ? 'proton' : 'warp') : 'ninguna';
   const marca = (id) => (actual === id ? ' ✓' : '');
-  const paises = actual === 'proton' && Array.isArray(c.paises) ? c.paises : [];
-  openLayer(`
+  const disp = Array.isArray(c.disponibles) && c.disponibles.length ? c.disponibles : [];
+  const paisActual = (c.paises && c.paises[0]) || 'Spain';
+  const opt = (x) => `<option value="${esc(x.id)}"${x.id === paisActual ? ' selected' : ''}>${esc(x.es)}</option>`;
+  const capa = openLayer(`
     <h2>VPN del motor</h2>
     ${v?.activa
       ? `<p>El motor del servidor sale por <b>${esc(nombreVpn(v))}</b>${v.ip ? ` · IP <b>${esc(v.ip)}</b>` : ''}${v.pais ? ` · ${esc([v.ciudad, v.pais].filter(Boolean).join(', '))}` : ''}. Vale para todas las teles.</p>`
@@ -1105,26 +1107,26 @@ function ayudaVpnCasa() {
         ? '<p>La VPN está puesta en el servidor pero no conecta. Prueba con otra opción o con otro país.</p>'
         : '<p>Ahora el motor sale <b>directamente</b> a internet, sin VPN.</p>'}
     ${c.aplicando ? '<p class="muted">Aplicando un cambio…</p>' : ''}
-    <div class="actions" style="flex-wrap:wrap">
-      <button class="btn" data-vpn-usar="ninguna">Sin VPN${marca('ninguna')}</button>
-      <button class="btn" data-vpn-usar="warp">Cloudflare WARP${marca('warp')}</button>
-      ${c.protonListo ? `<button class="btn" data-vpn-usar="proton">Proton${marca('proton')}</button>` : ''}
+    <div class="vpn-ops">
+      <button class="btn${actual === 'ninguna' ? ' primary' : ''}" data-vpn-usar="ninguna">Sin VPN${marca('ninguna')}</button>
+      <button class="btn${actual === 'warp' ? ' primary' : ''}" data-vpn-usar="warp">Cloudflare WARP${marca('warp')}</button>
+      ${c.protonListo ? `<button class="btn${actual === 'proton' ? ' primary' : ''}" data-vpn-usar="proton">Proton VPN${marca('proton')}</button>` : ''}
     </div>
-    ${paises.length ? `<p class="muted">País de salida (Proton). Si da problemas, prueba otro:</p>
-      <div class="actions" style="flex-wrap:wrap">${paises.map((p) => `<button class="btn" data-vpn-pais="${esc(p)}">${esc(p)}</button>`).join('')}</div>` : ''}
+    ${c.protonListo && disp.length ? `<label class="vpn-pais">País de salida de Proton (si da problemas, prueba otro)
+      <select id="vpnPaisTv"><optgroup label="Recomendados">${disp.filter((x) => x.rec).map(opt).join('')}</optgroup>
+      <optgroup label="Resto de países">${disp.filter((x) => !x.rec).map(opt).join('')}</optgroup></select></label>` : ''}
     ${actual === 'warp' ? '<p class="muted">Cloudflare WARP no permite elegir país: sale siempre por España.</p>' : ''}
     ${!c.protonListo ? '<p class="muted">Proton no está configurado en el servidor (clave sin guardar).</p>' : ''}
     <p class="muted">Con la VPN no se pueden abrir puertos: si notas menos peers que sin VPN, quítala.</p>
     ${v?.pasarela
       ? `<p class="muted">Canales de TV por dirección web: ${tvPorVpn() ? 'también salen por la VPN.' : 'los descarga la tele directamente (ajuste «Canales de TV por la VPN»).'}</p>`
       : ''}
-    <div class="actions"><button class="btn primary" data-close data-autofocus>Cerrar</button></div>`)
-    .addEventListener('click', (e) => {
+    <div class="actions"><button class="btn primary" data-close data-autofocus>Cerrar</button></div>`);
+  capa.addEventListener('click', (e) => {
       const u = e.target.closest('[data-vpn-usar]');
-      const p = e.target.closest('[data-vpn-pais]');
       if (u) cambiarVpnCasa({ usar: u.dataset.vpnUsar });
-      else if (p) cambiarVpnCasa({ pais: p.dataset.vpnPais });
     });
+  capa.querySelector('#vpnPaisTv')?.addEventListener('change', (e) => cambiarVpnCasa({ pais: e.target.value }));
 }
 
 async function estadoCasa() {
