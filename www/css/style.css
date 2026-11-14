@@ -854,3 +854,12 @@ html:not(.webpc) * { scrollbar-width: none; }
 .vpn-pais select { width: 100%; padding: .7rem .8rem; border-radius: .7rem; border: 2px solid var(--panel2); background: var(--bg); color: var(--text); font: inherit; }
 .vpn-pais select:focus { outline: 3px solid var(--focus); }
 html.movil .vpn-ops { grid-template-columns: 1fr; }
+
+/* Agenda dentro de Inicio */
+.agenda-inicio { margin-top: 1.6rem; }
+.agenda-inicio .filters { margin-top: .55rem; }
+.agenda-inicio .filters.dias .chip { font-weight: 600; }
+.agenda-inicio .filters.deportes .chip { display: inline-flex; align-items: center; gap: .35rem; }
+.agenda-inicio .ag-filas { margin-top: .8rem; }
+html.movil .agenda-inicio .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -.85rem; padding-right: .85rem; }
+html.movil .agenda-inicio .filters::-webkit-scrollbar { display: none; }

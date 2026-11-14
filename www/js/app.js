@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.60.1';
+const VERSION = '0.61.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -3291,7 +3291,48 @@ function lineaCanal(c) {
     <span class="l-txt"><span class="l-tit">${esc(c.title)}</span><span class="l-sub">${esc(c.category || '')}</span></span></button>`;
 }
 
+// Agenda dentro de Inicio: días (hoy y los siguientes), filtros, deportes y los eventos en filas.
+// Comparte el estado con el módulo de la agenda (día, filtro, deporte y búsqueda elegidos).
+function bloqueAgenda() {
+  const st = agenda.st;
+  const ds = agenda.dias().slice(0, 7);
+  if (st.dia && !ds.some((d) => d.key === st.dia)) st.dia = null;
+  if (!st.dia && ds.length) st.dia = ds[0].key;
+  const deportes = [...new Set(st.eventos.filter((e) => e.inicio && (!st.dia || agenda.claveDia(e.inicio) === st.dia)).map((e) => e.deporte).filter(Boolean))]
+    .sort((a, b) => (a === 'Fútbol' ? -1 : b === 'Fútbol' ? 1 : a.localeCompare(b, 'es')));
+  if (st.deporte && !deportes.includes(st.deporte)) st.deporte = null;
+  const lista = agenda.visibles().map(agenda.conCanal);
+  const ahora = Date.now();
+  lista.sort((a, b) => (agenda.enCurso(b.ev, ahora) - agenda.enCurso(a.ev, ahora)) || (a.ev.inicio - b.ev.inicio));
+  const chip = (on, key, attrs, txt) => `<button class="chip${on ? ' on' : ''}" data-hkey="ag:${esc(key)}" ${attrs}>${txt}</button>`;
+  const actualizada = st.cargando ? 'actualizando…' : st.fetchedAt ? `actualizada ${new Date(st.fetchedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : '';
+  const filas = st.busqueda ? filasConDias(lista, 'ag') : lista.map((x) => lineaEvento(x, 'ag'));
+  const vacio = st.cargando ? 'Cargando la agenda…' : st.busqueda ? 'Ningún evento coincide con la búsqueda.'
+    : st.filtro === 'con' ? 'Ningún evento de este día coincide con tus canales. Prueba «Todos».' : 'No hay eventos este día.';
+  return `<section class="lista-bloque agenda-inicio" id="agenda-inicio" aria-label="Agenda">
+    <h2>Agenda <small>${esc(actualizada)}</small></h2>
+    <div class="filters dias">${st.busqueda ? '' : ds.map((d) => chip(st.dia === d.key, 'd:' + d.key, `data-h="dia" data-dia="${d.key}"`, esc(d.label))).join('')}</div>
+    <div class="filters">
+      ${chip(st.filtro === 'con', 'f:con', 'data-h="filtro" data-filtro="con"', 'Con mis canales')}
+      ${chip(st.filtro === 'todos', 'f:todos', 'data-h="filtro" data-filtro="todos"', 'Todos')}
+      ${chip(st.filtro === 'abierto', 'f:abierto', 'data-h="filtro" data-filtro="abierto"', 'En abierto')}
+      ${chip(!!st.busqueda, 'buscar', 'data-h="abuscar"', `🔍 ${st.busqueda ? esc(st.busqueda) + ' ✕' : 'Buscar evento'}`)}
+      ${chip(false, 'fuente', 'data-h="afuente"', 'Fuente: ' + esc(agenda.fuente().label))}
+      ${chip(false, 'refresh', 'data-h="arefresh"', 'Actualizar')}
+    </div>
+    ${deportes.length > 1 ? `<div class="filters deportes">${chip(!st.deporte, 's:', 'data-h="dep" data-dep=""', 'Todos los deportes')}${deportes.map((d) => chip(st.deporte === d, 's:' + d, `data-h="dep" data-dep="${esc(d)}"`, `${iconoDeporte(d)} ${esc(d)}`)).join('')}</div>` : ''}
+    ${st.error ? `<p class="bad-text">No se pudo actualizar la agenda: ${esc(st.error)}</p>` : ''}
+    <div class="ag-filas">${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</div>
+  </section>`;
+}
+
 // Inicio en modo lista: todo en filas, sin tarjetas ni hero
+function bloqueDestacados(excluir) {
+  const nDest = Number(store.settings.destacados ?? 3);
+  const dests = nDest > 0 && agenda.st.eventos.length ? eventosDestacados(nDest, excluir) : [];
+  return dests.length ? `<section class="fila destacados n${dests.length}" aria-label="Destacados de hoy"><h2>Destacados de hoy</h2><div class="dest-grid">${dests.map(tarjetaDestacada).join('')}</div></section>` : '';
+}
+
 function renderHomeLista() {
   const sec = $('#sec-inicio');
   const prevKey = document.activeElement?.dataset?.hkey;
@@ -3300,9 +3341,9 @@ function renderHomeLista() {
   const bloque = (titulo, filas, vacio) => `<section class="lista-bloque" aria-label="${esc(titulo)}"><h2>${esc(titulo)} <small>${filas.filter((f) => !f.startsWith('<h3')).length}</small></h2>${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</section>`;
   const vistos = vistosRecientes().slice(0, 15).map((x) => lineaCanal(x.c));
   sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo" data-autofocus>▦ Ver en tarjetas</button></div>`
-    + bloque('En directo', agenda.directoTodos().map((x) => lineaEvento(x, 'directo')), agenda.st.cargando ? 'Cargando la agenda…' : 'Ahora no hay eventos en directo')
-    + bloque('Vistos recientemente', vistos, 'Aún no has visto ningún canal')
-    + bloque('A continuación', filasConDias(agenda.siguientes(24), 'sigue'), 'No hay más eventos en las próximas horas');
+    + bloqueDestacados()
+    + bloqueAgenda()
+    + bloque('Vistos recientemente', vistos, 'Aún no has visto ningún canal');
   if (ui.section === 'inicio' && (wasIn || document.activeElement === document.body)) {
     const el = (prevKey && sec.querySelector(`[data-hkey="${CSS.escape(prevKey)}"]`)) || sec.querySelector('[data-autofocus]');
     if (el) el.focus({ preventScroll: true });
@@ -3373,24 +3414,16 @@ function renderHome() {
     }
   }
   const destId = ui.destacado?.ev.id;
-  const enDirecto = directo.filter((x) => x.ev.id !== destId).slice(0, 24);
-  const siguen = agenda.siguientes(8).slice(0, 24);
-  const porDeporte = agenda.hoyPorDeporte().filter((g) => g.items.length >= 2).slice(0, 5);
   const favs = store.channels.filter((c) => c.favorite);
   const canales = (favs.length ? favs : mejoresCanales().filter((c) => statusOf(c) === 'alive')).slice(0, 15);
   const fila = (titulo, html) => (html ? `<section class="fila" aria-label="${esc(titulo)}"><h2>${esc(titulo)}</h2><div class="fila-scroll">${html}</div></section>` : '');
   const vistos = vistosRecientes().slice(0, 12);
-  const nDest = Number(store.settings.destacados ?? 3);
-  const dests = nDest > 0 && agenda.st.eventos.length ? eventosDestacados(nDest, destId) : [];
-  const bloqueDest = dests.length ? `<section class="fila destacados n${dests.length}" aria-label="Destacados de hoy"><h2>Destacados de hoy</h2><div class="dest-grid">${dests.map(tarjetaDestacada).join('')}</div></section>` : '';
+  const bloqueDest = bloqueDestacados(destId);
   sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo">☰ Ver en lista</button></div>` + hero + bloqueDest
-    + fila('En directo ahora', enDirecto.map((x) => tarjetaEvento(x, 'directo')).join(''))
+    + bloqueAgenda()
     + fila('Vistos recientemente', vistos.map((x) => tarjetaCanal(x.c, 'v')).join(''))
-    + fila('A continuación', siguen.map((x) => tarjetaEvento(x, 'sigue')).join(''))
     + fila(favs.length ? 'Tus favoritos' : 'Canales vivos', canales.map(tarjetaCanal).join(''))
-    + filasPorCategoria().map((g, i) => fila(g.cat, g.canales.map((c) => tarjetaCanal(c, `k${i}`)).join(''))).join('')
-    + porDeporte.map((g) => fila(`${g.deporte} · hoy`, g.items.slice(0, 20).map((x) => tarjetaEvento(x, 'dep-' + g.deporte)).join(''))).join('')
-    + (agenda.st.eventos.length ? '' : `<p class="inicio-vacio">${agenda.st.cargando ? 'Cargando la agenda deportiva…' : agenda.st.error ? `No se pudo cargar la agenda: ${esc(agenda.st.error)}` : 'Cargando la agenda deportiva…'}</p>`);
+    + filasPorCategoria().map((g, i) => fila(g.cat, g.canales.map((c) => tarjetaCanal(c, `k${i}`)).join(''))).join('');
   if (ui.section === 'inicio' && (wasIn || prev === document.body)) {
     const el = (prevKey && sec.querySelector(`[data-hkey="${CSS.escape(prevKey)}"]`)) || sec.querySelector('[data-autofocus]');
     if (el) el.focus({ preventScroll: true });
@@ -3407,7 +3440,23 @@ function homeClick(e) {
     if (a === 'ace' && d) openWith('aceplayer', d.m.canal);
     if (a === 'canal') openWith(store.settings.player, store.find(h.dataset.id), mejoresCanales());
     if (a === 'modo') { store.setSettings({ inicioLista: !store.settings.inicioLista }); renderHome(); return; }
-    if (a === 'agenda') showSection('agenda');
+    if (a === 'agenda') { document.getElementById('agenda-inicio')?.scrollIntoView({ block: 'start' }); focusEl(document.querySelector('#agenda-inicio .chip')); }
+    const st = agenda.st;
+    if (a === 'dia') { st.dia = h.dataset.dia; st.deporte = null; renderHome(); return; }
+    if (a === 'filtro') { st.filtro = h.dataset.filtro; renderHome(); return; }
+    if (a === 'dep') { st.deporte = h.dataset.dep || null; renderHome(); return; }
+    if (a === 'abuscar') {
+      if (st.busqueda) { st.busqueda = ''; renderHome(); return; }
+      Promise.resolve(promptText('Buscar evento', '', { placeholder: 'Equipo, competición, deporte o canal', ok: 'Buscar' }))
+        .then((v) => { if (v == null) return; st.busqueda = String(v).trim(); renderHome(); });
+      return;
+    }
+    if (a === 'arefresh') { agenda.descargar(true); return; }
+    if (a === 'afuente') {
+      const keys = Object.keys(agenda.FUENTES);
+      store.setSettings({ agendaFuente: keys[(keys.indexOf(store.settings.agendaFuente || 'deportes') + 1) % keys.length] });
+      agenda.descargar(true); renderHome(); return;
+    }
     if (a === 'comprobar') { showSection('canales'); verifyMany(visibleChannels()); }
     if (a === 'movil') openPhone();
     if (a === 'importar') openImport();
@@ -3651,6 +3700,7 @@ ui.section = 'inicio';
 
 function showSection(name, { focus = true } = {}) {
   if (name === 'importar') name = 'listas';
+  if (name === 'agenda') name = 'inicio';   // la agenda está dentro de Inicio
   if (name === 'movil') { openPhone(); return; }
   if (name === 'buscar') { showSection('canales', { focus: false }); openSearch(); return; }
   // Favoritos es la pantalla de Canales con solo los favoritos (y el zapping va solo por ellos)

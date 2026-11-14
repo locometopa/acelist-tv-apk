@@ -805,7 +805,7 @@ export function crearAgenda(app) {
     }));
   }
 
-  return { show, refreshView, click, descargar, eventosDeCanal, resumen, st,
+  return { show, refreshView, click, descargar, eventosDeCanal, resumen, st, dias, claveDia, visibles, conCanal, fuente, FUENTES,
     enCurso, enDirecto, proximos, abiertoAhora, abrirEvento, canalesEvento, hora,
     directoTodos, siguientes, hoyPorDeporte, jugable, eventoPorCanal };
 }
