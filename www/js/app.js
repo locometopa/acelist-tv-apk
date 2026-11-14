@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.58.0';
+const VERSION = '0.59.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -1064,37 +1064,66 @@ function casaTexto() {
   if (!ip) return 'Sin configurar ›';
   if (!ui.casa) return `${ip} · comprobando…`;
   if (ui.casa.error) return `${ip} · no responde`;
-  return `${ip} · ${ui.casa.motor ? 'motor ✓' : 'sin motor'}${ui.casa.vpn?.activa ? ' · VPN ✓' : ''}${ui.casa.copias ? ` · ${ui.casa.copias} copias` : ''}`;
+  return `${ip} · ${ui.casa.motor ? 'motor ✓' : 'sin motor'}${ui.casa.vpn?.activa ? ' · ' + nombreVpn(ui.casa.vpn) : ''}${ui.casa.copias ? ` · ${ui.casa.copias} copias` : ''}`;
+}
+
+function nombreVpn(v) {
+  if (!v?.activa) return 'Ninguna';
+  return /proton/i.test(v.proveedor || '') ? 'Proton' : /cloudflare|warp/i.test(v.proveedor || '') ? 'Cloudflare WARP' : (v.proveedor || 'VPN');
 }
 
 function vpnCasaTexto() {
   const v = ui.casa?.vpn;
   if (!ui.casa || ui.casa.error) return '…';
-  if (v?.activa) return `Activa · sale por ${[v.ciudad, v.pais].filter(Boolean).join(', ') || v.ip || (v.proveedor || 'VPN')} ›`;
+  if (v?.activa) return `${nombreVpn(v)} · sale por ${[v.ciudad, v.pais].filter(Boolean).join(', ') || v.ip || 'la VPN'} ›`;
   if (v?.configurada) return 'Configurada, pero no conecta ›';
-  return 'Desactivada ›';
+  return 'Ninguna · sale directo ›';
+}
+
+async function cambiarVpnCasa(cuerpo) {
+  try {
+    const r = await fetch(urlCasa('/api/vpn'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+    if (!r.ok) throw new Error(`el servidor responde ${r.status}`);
+    toast('Pedido enviado al servidor. Tarda un minuto en conectar.', 'ok');
+  } catch (e) { toast(`No se pudo cambiar la VPN: ${e.message}`, 'bad'); return; }
+  closeLayer();
+  setTimeout(estadoCasa, 20000);
 }
 
 function ayudaVpnCasa() {
   const v = ui.casa?.vpn;
+  const c = ui.casa?.vpnCambio || {};
+  const actual = v?.activa ? (/proton/i.test(v.proveedor || '') ? 'proton' : 'warp') : 'ninguna';
+  const marca = (id) => (actual === id ? ' ✓' : '');
+  const paises = actual === 'proton' && Array.isArray(c.paises) ? c.paises : [];
   openLayer(`
     <h2>VPN del motor</h2>
     ${v?.activa
-      ? `<p>El motor del servidor sale a internet por <b>${esc(v.proveedor || 'Cloudflare WARP')}</b>${v.ip ? ` con la IP <b>${esc(v.ip)}</b>` : ''}${v.pais ? ` (${esc([v.ciudad, v.pais].filter(Boolean).join(', '))})` : ''}.
-         Vale para todas las teles a la vez; no hace falta ninguna VPN en ellas.</p>`
+      ? `<p>El motor del servidor sale por <b>${esc(nombreVpn(v))}</b>${v.ip ? ` · IP <b>${esc(v.ip)}</b>` : ''}${v.pais ? ` · ${esc([v.ciudad, v.pais].filter(Boolean).join(', '))}` : ''}. Vale para todas las teles.</p>`
       : v?.configurada
-        ? '<p>La VPN está puesta en el servidor pero no conecta. En el servidor: <b>sh vpn.sh estado</b> y <b>docker compose logs gluetun</b>.</p>'
-        : '<p>Ahora el motor sale directamente a internet.</p>'}
-    <p class="muted">Se activa o se quita en el servidor, en la carpeta de HomeTV:<br>
-      <b>sh vpn.sh activar</b> · <b>sh vpn.sh quitar</b> · <b>sh vpn.sh estado</b></p>
+        ? '<p>La VPN está puesta en el servidor pero no conecta. Prueba con otra opción o con otro país.</p>'
+        : '<p>Ahora el motor sale <b>directamente</b> a internet, sin VPN.</p>'}
+    ${c.aplicando ? '<p class="muted">Aplicando un cambio…</p>' : ''}
+    <div class="actions" style="flex-wrap:wrap">
+      <button class="btn" data-vpn-usar="ninguna">Sin VPN${marca('ninguna')}</button>
+      <button class="btn" data-vpn-usar="warp">Cloudflare WARP${marca('warp')}</button>
+      ${c.protonListo ? `<button class="btn" data-vpn-usar="proton">Proton${marca('proton')}</button>` : ''}
+    </div>
+    ${paises.length ? `<p class="muted">País de salida (Proton). Si da problemas, prueba otro:</p>
+      <div class="actions" style="flex-wrap:wrap">${paises.map((p) => `<button class="btn" data-vpn-pais="${esc(p)}">${esc(p)}</button>`).join('')}</div>` : ''}
+    ${actual === 'warp' ? '<p class="muted">Cloudflare WARP no permite elegir país: sale siempre por España.</p>' : ''}
+    ${!c.protonListo ? '<p class="muted">Proton no está configurado en el servidor (clave sin guardar).</p>' : ''}
     <p class="muted">Con la VPN no se pueden abrir puertos: si notas menos peers que sin VPN, quítala.</p>
     ${v?.pasarela
-      ? `<p class="muted">Canales de TV por dirección web (TDT, otros países): ${tvPorVpn()
-          ? 'también salen por la VPN, a través del servidor.'
-          : 'ahora los descarga la tele directamente. Actívalo en «Canales de TV por la VPN».'}
-         La VPN sale casi siempre por España: salta los bloqueos de la operadora, pero no los canales que solo se ven desde otro país.</p>`
-      : '<p class="muted">Los canales de TDT y de otros países los descarga la tele directamente, sin pasar por esta VPN (actualiza el servidor de casa para poder pasarlos por ella).</p>'}
-    <div class="actions"><button class="btn primary" data-close data-autofocus>Entendido</button></div>`);
+      ? `<p class="muted">Canales de TV por dirección web: ${tvPorVpn() ? 'también salen por la VPN.' : 'los descarga la tele directamente (ajuste «Canales de TV por la VPN»).'}</p>`
+      : ''}
+    <div class="actions"><button class="btn primary" data-close data-autofocus>Cerrar</button></div>`)
+    .addEventListener('click', (e) => {
+      const u = e.target.closest('[data-vpn-usar]');
+      const p = e.target.closest('[data-vpn-pais]');
+      if (u) cambiarVpnCasa({ usar: u.dataset.vpnUsar });
+      else if (p) cambiarVpnCasa({ pais: p.dataset.vpnPais });
+    });
 }
 
 async function estadoCasa() {
@@ -2534,7 +2563,7 @@ const SETTING_ROWS = [
   { action: 'vpnayuda', label: '¿Cuál uso?' },
   { title: 'Servidor de casa' },
   { action: 'casa', label: 'Servidor de casa (motor, copias y actualizaciones)', value: () => casaTexto() },
-  { action: 'vpncasa', label: 'VPN del motor (Cloudflare WARP en el servidor)', value: () => vpnCasaTexto(), si: () => !!store.settings.servidorCasa },
+  { action: 'vpncasa', label: 'VPN del motor (en el servidor)', value: () => vpnCasaTexto(), si: () => !!store.settings.servidorCasa },
   { key: 'tvPorVpn', label: 'Canales de TV (IPTV/HLS) por la VPN del servidor', values: () => [true, false],
     show: (v) => (v !== false ? (ui.casa?.vpn?.activa ? 'Sí' : 'Sí (cuando la VPN esté activa)') : 'No'),
     si: () => !!store.settings.servidorCasa && !!ui.casa?.vpn?.pasarela },

@@ -137,7 +137,7 @@ sealed class Ventana : Form
     readonly BotonRiel rCanales = new("\uE7F4", "Canales");
     readonly BotonRiel rFavoritos = new("\uE734", "Favoritos");
     readonly BotonRiel rLista = new("\uE8FD", "Lista");   // esconde o enseña la lista de canales
-    readonly BotonRiel rVpn = new("\uEA18", "WARP");
+    readonly BotonRiel rVpn = new("\uEA18", "VPN");
     readonly BotonRiel rAjustes = new("\uE713", "Ajustes");
 
     readonly Panel cuerpo = new() { Dock = DockStyle.Fill, BackColor = Principal };
@@ -148,7 +148,7 @@ sealed class Ventana : Form
     readonly ComboBox categorias = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
     readonly CheckBox filtro = new() { Dock = DockStyle.Top, Height = 30, AutoSize = false };
     readonly ListBox lista = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 46, BorderStyle = BorderStyle.None, IntegralHeight = false };
-    readonly Label pie = new() { Dock = DockStyle.Right, Width = 300, TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true, Font = Tema.Pequena };
+    readonly Label pie = new() { Dock = DockStyle.Right, Width = 440, TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true, Font = Tema.Pequena };
     readonly Button botonActualizar;
     readonly ContextMenuStrip menu = new();
     readonly ToolTip ayudas = new();
@@ -299,7 +299,7 @@ sealed class Ventana : Form
         rCanales.Click += (_, _) => Ir(Seccion.Canales);
         rFavoritos.Click += (_, _) => Ir(Seccion.Favoritos);
         rLista.Click += (_, _) => AlternarLista();
-        rVpn.Click += (_, _) => _ = CambiarVpn();
+        rVpn.Click += (_, _) => MenuVpn();
         rAjustes.Click += (_, _) => AbrirAjustes();
         ayudas.SetToolTip(rHoy, "Inicio: lo que echan ahora en tus canales (tecla H)");
         ayudas.SetToolTip(rAgenda, "La agenda de eventos en lista, día a día (tecla G)");
@@ -820,11 +820,13 @@ sealed class Ventana : Form
             Filtrar();
             ComponerInicio();
             if (seccion == Seccion.Agenda) vistaAgenda.Cargar(agenda);
-            pie.Text = $"{Srv}{(Srv == ajustes.ServidorExterno ? " (Tailscale)" : "")} · {todos.Count(c => !c.Apagada)} canales · {todos.Count(c => c.Vivo && !c.Apagada)} funcionan" + (simple ? "" : " · servidor sin actualizar");
+            pieBase = $"{Srv}{(Srv == ajustes.ServidorExterno ? " (Tailscale)" : "")} · {todos.Count(c => !c.Apagada)} canales · {todos.Count(c => c.Vivo && !c.Apagada)} funcionan" + (simple ? "" : " · servidor sin actualizar");
+            ActualizarPie();
         }
         catch (Exception e)
         {
-            pie.Text = todos.Count > 0 ? $"Sin conexión con {Srv} (lista guardada)" : $"Sin conexión con {Srv}";
+            pieBase = todos.Count > 0 ? $"Sin conexión con {Srv} (lista guardada)" : $"Sin conexión con {Srv}";
+            ActualizarPie();
             if (avisar || todos.Count == 0)
             {
                 var r = MessageBox.Show(this, $"No se ha podido leer la lista de canales de {Srv}.\n\n{e.Message}\n\n¿Quieres cambiar la dirección del servidor?\n(En casa: 192.168.1.180 · Fuera, con Tailscale: la IP que empieza por 100.)",
@@ -1395,7 +1397,19 @@ sealed class Ventana : Form
     // ---------- VPN (WARP o Proton): la VPN del motor, que vive en el servidor ----------
     // El P2P lo hace el motor del servidor, así que la VPN se pone allí (no en este PC): aquí solo se ve y se cambia.
     string vpnProveedor = "Cloudflare WARP";
-    string vpnNombre => vpnProveedor.Contains("Proton") ? "Proton" : "WARP";
+    string vpnProveedorId = "warp";   // el que está en uso: warp o proton
+    string vpnPais = "";              // país por el que sale ahora
+    string vpnCiudad = "";
+    string vpnIp = "";
+    bool protonListo;
+    string[] paisesProton = Array.Empty<string>();   // en orden de preferencia: el primero es el elegido
+    string vpnNombre => vpnProveedorId == "proton" ? "Proton" : "WARP";
+    static readonly Dictionary<string, string> NombresPais = new()
+    {
+        ["Spain"] = "España", ["Portugal"] = "Portugal", ["France"] = "Francia", ["Germany"] = "Alemania", ["Netherlands"] = "Países Bajos",
+        ["Switzerland"] = "Suiza", ["Italy"] = "Italia", ["United Kingdom"] = "Reino Unido", ["Sweden"] = "Suecia", ["Belgium"] = "Bélgica",
+    };
+    static string PaisEs(string p) => NombresPais.TryGetValue(p, out var n) ? n : p;
 
     async Task MirarVpn()
     {
@@ -1409,53 +1423,99 @@ sealed class Ventana : Form
                 ajustes.ServidorExterno = ts.GetString()!;
                 ajustes.Guardar();
             }
-            string ip = "";
             vpnActiva = false;
             if (r.TryGetProperty("vpn", out var v))
             {
-                vpnActiva = Cierto(v, "activa"); ip = Cadena(v, "ip");
+                vpnActiva = Cierto(v, "activa"); vpnIp = Cadena(v, "ip"); vpnPais = Cadena(v, "pais"); vpnCiudad = Cadena(v, "ciudad");
                 string prov = Cadena(v, "proveedor");
                 if (prov.Length > 0) vpnProveedor = prov;
+                string id = Cadena(v, "proveedorId");
+                vpnProveedorId = id.Length > 0 ? id : prov.Contains("Proton") ? "proton" : "warp";
             }
-            string n = vpnNombre;
-            vpnCambiando = r.TryGetProperty("vpnCambio", out var c) && (Cierto(c, "aplicando") || Cadena(c, "pedido").Length > 0);
-            rVpn.Etiqueta = vpnCambiando ? n + "…" : vpnActiva ? n + " sí" : n + " no";
+            vpnCambiando = false;
+            if (r.TryGetProperty("vpnCambio", out var c))
+            {
+                vpnCambiando = Cierto(c, "aplicando") || Cadena(c, "pedido").Length > 0;
+                protonListo = Cierto(c, "protonListo");
+                paisesProton = c.TryGetProperty("paises", out var ps) && ps.ValueKind == JsonValueKind.Array ? ps.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray() : Array.Empty<string>();
+            }
+            // Siempre se ve de un vistazo qué hay: «Sin VPN», «Proton» o «WARP»
+            rVpn.Etiqueta = vpnCambiando ? "VPN…" : vpnActiva ? vpnNombre : "Sin VPN";
             rVpn.Encendido = vpnActiva && !vpnCambiando;
             rVpn.Enabled = !vpnCambiando;
             rVpn.Invalidate();
-            ayudas.SetToolTip(rVpn, vpnActiva ? $"El motor sale por {vpnProveedor} ({ip}). Pulsa para apagarlo." : $"El motor sale directamente por tu conexión. Pulsa para activar {n}.");
+            string donde = string.Join(", ", new[] { vpnCiudad, PaisEs(vpnPais) }.Where(x => x.Length > 0));
+            ayudas.SetToolTip(rVpn, vpnCambiando ? "Cambiando la VPN del servidor… tarda unos 30 segundos."
+                : vpnActiva ? $"El motor sale por {vpnProveedor}{(donde.Length > 0 ? " · " + donde : "")}{(vpnIp.Length > 0 ? $" ({vpnIp})" : "")}. Pulsa para cambiar de VPN o de país."
+                : "El motor sale directamente por tu conexión (sin VPN). Pulsa para elegir una.");
+            pieVpn = vpnCambiando ? "VPN: cambiando…" : vpnActiva ? $"VPN: {vpnNombre}{(vpnPais.Length > 0 ? " · " + PaisEs(vpnPais) : "")}" : "Sin VPN";
+            ActualizarPie();
             mirarVpn.Interval = vpnCambiando ? 4000 : 20000;
         }
-        catch { rVpn.Etiqueta = vpnNombre + " ?"; rVpn.Enabled = false; rVpn.Invalidate(); }
+        catch { rVpn.Etiqueta = "VPN ?"; rVpn.Enabled = false; rVpn.Invalidate(); }
     }
 
-    async Task CambiarVpn()
+    string pieVpn = "";
+    string pieBase = "";
+    void ActualizarPie() { pie.Text = pieBase + (pieVpn.Length > 0 ? " · " + pieVpn : ""); }
+
+    // Menú de la VPN: elegir ninguna, WARP o Proton (con su país)
+    void MenuVpn()
     {
-        bool activar = !vpnActiva;
-        var r = MessageBox.Show(this, (activar
-            ? $"¿Activar {vpnNombre} en el servidor?\n\nEl tráfico de Ace Stream irá por {vpnProveedor} y la operadora no podrá bloquearlo. Puede haber algo menos de peers."
-            : $"¿Apagar {vpnNombre} en el servidor?\n\nEl motor saldrá directamente por tu conexión (más peers, pero a la vista de la operadora).")
-            + "\n\nEl motor se reinicia: el canal se corta unos 30 segundos y vuelve solo. Afecta también a las teles.",
-            "HomeTV · " + vpnNombre, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
-        if (r != DialogResult.OK) return;
+        var m = new ContextMenuStrip { Renderer = new ToolStripProfessionalRenderer(new ColoresOscuros()), ForeColor = Texto };
+        string donde = string.Join(", ", new[] { vpnCiudad, PaisEs(vpnPais) }.Where(x => x.Length > 0));
+        m.Items.Add(new ToolStripMenuItem(vpnActiva ? $"Ahora: {vpnProveedor}{(donde.Length > 0 ? " · " + donde : "")}" : "Ahora: sin VPN (sale directo)") { Enabled = false });
+        m.Items.Add(new ToolStripSeparator());
+        var sin = new ToolStripMenuItem("Sin VPN (salir directo)") { Checked = !vpnActiva };
+        sin.Click += (_, _) => { if (vpnActiva) _ = EnviarVpn("{\"usar\":\"ninguna\"}"); };
+        m.Items.Add(sin);
+        var warp = new ToolStripMenuItem("Cloudflare WARP (gratis, siempre sale por España)") { Checked = vpnActiva && vpnProveedorId == "warp" };
+        warp.Click += (_, _) => { if (!(vpnActiva && vpnProveedorId == "warp")) _ = EnviarVpn("{\"usar\":\"warp\"}"); };
+        m.Items.Add(warp);
+        m.Items.Add(new ToolStripSeparator());
+        m.Items.Add(new ToolStripMenuItem("Proton VPN · elige país:") { Enabled = false });
+        string elegido = paisesProton.Length > 0 ? paisesProton[0] : "Spain";
+        foreach (var pais in new[] { "Spain", "Portugal", "France", "Germany", "Netherlands", "Switzerland", "Italy", "United Kingdom" })
+        {
+            string p = pais;
+            var it = new ToolStripMenuItem("      " + PaisEs(p)) { Enabled = protonListo, Checked = vpnActiva && vpnProveedorId == "proton" && elegido == p };
+            it.Click += async (_, _) =>
+            {
+                bool yaProton = vpnActiva && vpnProveedorId == "proton";
+                if (!await EnviarVpn($"{{\"pais\":\"{p}\"}}", false)) return;
+                if (!yaProton) await EnviarVpn("{\"usar\":\"proton\"}");
+            };
+            m.Items.Add(it);
+        }
+        if (!protonListo) m.Items.Add(new ToolStripMenuItem("(para Proton guarda antes su clave en el servidor)") { Enabled = false });
+        m.Show(rVpn, new Point(rVpn.Width + 4, 0), ToolStripDropDownDirection.AboveRight);
+    }
+
+    async Task<bool> EnviarVpn(string json, bool avisar = true)
+    {
         try
         {
-            using var cuerpo = new StringContent(activar ? "{\"activar\":true}" : "{\"activar\":false}", Encoding.UTF8, "application/json");
+            using var cuerpo = new StringContent(json, Encoding.UTF8, "application/json");
             using var resp = await http.PostAsync($"http://{Srv}:8096/api/vpn", cuerpo);
             string txt = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode)
             {
                 string error = txt;
                 try { using var d = JsonDocument.Parse(txt); error = Cadena(d.RootElement, "error"); } catch { /* texto tal cual */ }
-                MessageBox.Show(this, "El servidor no ha podido cambiar la VPN:\n\n" + error, "HomeTV · " + vpnNombre, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                MessageBox.Show(this, "El servidor no ha podido cambiar la VPN:\n\n" + error, "HomeTV · VPN", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
             }
-            rVpn.Etiqueta = vpnNombre + "…";
-            rVpn.Enabled = false;
-            rVpn.Invalidate();
-            mirarVpn.Interval = 4000;
+            if (avisar)
+            {
+                Estado("Cambiando la VPN del servidor: el canal se corta unos 30 segundos y vuelve solo");
+                rVpn.Etiqueta = "VPN…";
+                rVpn.Enabled = false;
+                rVpn.Invalidate();
+                mirarVpn.Interval = 4000;
+            }
+            return true;
         }
-        catch (Exception e) { MessageBox.Show(this, "No se ha podido hablar con el servidor:\n\n" + e.Message, "HomeTV · " + vpnNombre, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        catch (Exception e) { MessageBox.Show(this, "No se ha podido hablar con el servidor:\n\n" + e.Message, "HomeTV · VPN", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
     }
 
     // ---------- actualización del programa ----------
@@ -1566,6 +1626,29 @@ sealed class Ventana : Form
     string UrlDe(Enlace e) => e.Url ?? $"http://{(motorLocal ? "127.0.0.1" : Srv)}:6878/ace/{(manifest ? "manifest.m3u8" : "getstream")}?{(e.Tipo == "infohash" ? "infohash" : "id")}={e.Id}&pid={pid}";
 
     // Ficha de un evento de la agenda: qué es, cuándo, dónde lo dan, verlo y marcarlo como favorito
+    // Enciende una lista del servidor (vale para todas las teles) y recarga los canales
+    async Task ActivarLista(string id)
+    {
+        for (int intento = 0; intento < 3; intento++)
+        {
+            try
+            {
+                var raiz = JsonNode.Parse(await http.GetStringAsync($"http://{Srv}:8096/sincro"));
+                var datos = raiz!["datos"]!;
+                foreach (var x in (JsonArray)datos["sources"]!) if (x?["id"]?.ToString() == id) x["enabled"] = true;
+                var envio = new JsonObject { ["base"] = raiz["rev"]?.DeepClone(), ["datos"] = datos.DeepClone(), ["de"] = "Windows" };
+                using var cuerpo = new StringContent(envio.ToJsonString(), Encoding.UTF8, "application/json");
+                using var resp = await http.PutAsync($"http://{Srv}:8096/sincro", cuerpo);
+                if ((int)resp.StatusCode == 409) continue;
+                if (!resp.IsSuccessStatusCode) throw new Exception($"el servidor ha respondido {(int)resp.StatusCode}");
+                await CargarCanales(true);
+                Estado("Lista activada. Ya puedes buscar el canal.");
+                return;
+            }
+            catch (Exception e) { Estado("No se ha podido activar la lista: " + e.Message); return; }
+        }
+    }
+
     async Task FichaEvento(Evento ev)
     {
         var canal = CanalDe(ev);
@@ -1573,7 +1656,7 @@ sealed class Ventana : Form
         string cuando = ev.Aplazado ? "Aplazado" : ev.Vivo ? "En directo ahora" : $"{dia} a las {ev.Inicio:HH:mm}";
         string donde = canal != null ? (ev.Posible ? $"Quizá en «{canal.Titulo}» (la agenda solo dice: {ev.Canales})" : $"Lo tienes en «{canal.Titulo}»") : (ev.Canales.Length > 0 ? $"No tienes canal para verlo. Lo dan en: {ev.Canales}" : "Sin canal anunciado");
         string? youtube = ev.Enlaces.FirstOrDefault(u => u.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || u.Contains("youtu.be", StringComparison.OrdinalIgnoreCase));
-        bool hayExtra = ev.Ace.Count > 0 || youtube != null;
+        bool hayExtra = ev.Ace.Count > 0 || youtube != null || canal == null;
         int filaBotones = hayExtra ? 240 : 196;
         using var f = new Form { Text = "Evento", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, ClientSize = new Size(460, filaBotones + 54), MinimizeBox = false, MaximizeBox = false, Font = Font, BackColor = Fondo, ForeColor = Texto };
         using var fTitulo = new Font(Font.FontFamily, 13f, FontStyle.Bold);
@@ -1616,6 +1699,43 @@ sealed class Ventana : Form
             botonYt.FlatAppearance.BorderSize = 0;
             botonYt.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(youtube) { UseShellExecute = true }); } catch (Exception e) { Estado("No se ha podido abrir YouTube: " + e.Message); } };
             f.Controls.Add(botonYt);
+        }
+        if (canal == null)
+        {
+            var botonBus = new Button { Text = "🔍 Buscar en otras listas", Left = izquierda, Top = 196, Width = 190, Height = 34, FlatStyle = FlatStyle.Flat, BackColor = Panel2 };
+            botonBus.FlatAppearance.BorderSize = 0;
+            botonBus.Click += async (_, _) =>
+            {
+                botonBus.Enabled = false;
+                try
+                {
+                    var nombres = (ev.Canales.Length > 0 ? ev.Canales : ev.Titulo).Split(new[] { ',', '/', '|', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    var vistos = new HashSet<string>();
+                    var m = new ContextMenuStrip { Renderer = new ToolStripProfessionalRenderer(new ColoresOscuros()), ForeColor = Texto };
+                    foreach (var n in nombres.Take(4))
+                    {
+                        var r = JsonNode.Parse(await http.GetStringAsync($"http://{Srv}:8096/api/buscar-canal?q={Uri.EscapeDataString(n)}"));
+                        if (r?["items"] is not JsonArray its) continue;
+                        foreach (var it in its)
+                        {
+                            string idc = it?["id"]?.ToString() ?? "";
+                            if (!vistos.Add(idc)) continue;
+                            var ls = (it?["listas"] as JsonArray)?.Select(x => (Id: x?["id"]?.ToString() ?? "", Nombre: x?["name"]?.ToString() ?? "")).ToList() ?? new();
+                            if (ls.Count == 0) continue;
+                            var mi = new ToolStripMenuItem($"{it?["title"]} — activar lista «{ls[0].Nombre}»") { ForeColor = Texto };
+                            string lid = ls[0].Id;
+                            mi.Click += async (_, _) => { f.DialogResult = DialogResult.Cancel; await ActivarLista(lid); };
+                            m.Items.Add(mi);
+                            if (m.Items.Count >= 12) break;
+                        }
+                    }
+                    if (m.Items.Count == 0) { MessageBox.Show(f, "No hay nada parecido en el resto de listas del servidor.", "HomeTV · Buscar"); }
+                    else m.Show(botonBus, new Point(0, botonBus.Height));
+                }
+                catch (Exception e) { MessageBox.Show(f, "No se ha podido buscar: " + e.Message, "HomeTV · Buscar", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                botonBus.Enabled = true;
+            };
+            f.Controls.Add(botonBus);
         }
         f.CancelButton = cerrar;
         Tema.Aplicar(f);
