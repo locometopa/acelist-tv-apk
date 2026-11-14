@@ -246,7 +246,7 @@ sealed class VistaAgenda : Panel
 {
     sealed record Cab(string Texto);
 
-    readonly FlowLayoutPanel chips = new() { Dock = DockStyle.Top, Height = 46, Padding = new Padding(14, 8, 8, 0), BackColor = Tema.Principal, WrapContents = false, AutoScroll = true };
+    readonly BarraFiltros chips = new() { Dock = DockStyle.Top };
     readonly ListBox lista = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawVariable, BorderStyle = BorderStyle.None, IntegralHeight = false, BackColor = Tema.Principal, ForeColor = Tema.Texto };
     List<Evento> eventos = new();
     string deporte = "";      // "" = todos los deportes
@@ -312,26 +312,17 @@ sealed class VistaAgenda : Panel
 
     void MontarChips()
     {
-        chips.SuspendLayout();
-        foreach (var c in chips.Controls.Cast<Control>().ToArray()) { chips.Controls.Remove(c); c.Dispose(); }
-        chips.Controls.Add(Chip("Con mi canal", soloConCanal, () => { soloConCanal = !soloConCanal; CambioSoloConCanal?.Invoke(soloConCanal); MontarChips(); Rellenar(false); }, true));
-        chips.Controls.Add(Chip("Todos", deporte.Length == 0, () => { deporte = ""; MontarChips(); Rellenar(false); }, false));
+        var l = new List<BarraFiltros.Filtro>
+        {
+            new("Con mi canal", soloConCanal, () => { soloConCanal = !soloConCanal; CambioSoloConCanal?.Invoke(soloConCanal); MontarChips(); Rellenar(false); }, true),
+            new("Todos", deporte.Length == 0, () => { deporte = ""; MontarChips(); Rellenar(false); }, false),
+        };
         foreach (var d in eventos.Where(e => e.Deporte.Length > 0).GroupBy(e => e.Deporte).OrderByDescending(g => g.Count()).Select(g => g.Key).Take(14))
         {
             string dep = d;
-            chips.Controls.Add(Chip(Icono(dep) + " " + dep, deporte == dep, () => { deporte = deporte == dep ? "" : dep; MontarChips(); Rellenar(false); }, false));
+            l.Add(new(Icono(dep) + "  " + dep, deporte == dep, () => { deporte = deporte == dep ? "" : dep; MontarChips(); Rellenar(false); }, false));
         }
-        chips.ResumeLayout();
-    }
-
-    Button Chip(string t, bool on, Action alPulsar, bool aparte)
-    {
-        var b = new Button { Text = t, AutoSize = true, Height = 30, FlatStyle = FlatStyle.Flat, TabStop = false, Margin = new Padding(0, 0, aparte ? 16 : 6, 0), Padding = new Padding(6, 0, 6, 0), Font = Tema.Pequena };
-        b.FlatAppearance.BorderSize = 0;
-        b.BackColor = on ? Tema.Acento : Tema.Panel1;
-        b.ForeColor = on ? Tema.Fondo : Tema.Texto;
-        b.Click += (_, _) => alPulsar();
-        return b;
+        chips.Poner(l);
     }
 
     static string Icono(string deporte)
@@ -436,5 +427,76 @@ sealed class VistaAgenda : Panel
         int ancho = Math.Max(60, rDer.Left - x - 10);
         TextRenderer.DrawText(g, (ev.Favorito ? "★ " : "") + (ev.Competicion.Length > 0 ? ev.Competicion.ToUpperInvariant() : ev.Deporte.ToUpperInvariant()), Tema.Pequena, new Rectangle(x, fila.Top + 7, ancho, 18), Tema.Tenue, corta);
         TextRenderer.DrawText(g, ev.Titulo.Replace(" - ", " – "), Tema.Negrita, new Rectangle(x, fila.Top + 26, ancho, 28), ev.Favorito ? Tema.Acento : canal != null ? Tema.Texto : Tema.Tenue, corta);
+    }
+}
+
+// Fila de filtros de la agenda dibujada a mano: píldoras que bajan a otra línea si no caben (sin barra de desplazamiento ni botones cortados)
+sealed class BarraFiltros : Control
+{
+    public sealed record Filtro(string Texto, bool Activo, Action Pulsar, bool Aparte);
+
+    List<Filtro> filtros = new();
+    readonly List<Rectangle> sitios = new();
+    int encima = -1;
+    const int Alto = 32, MargenX = 14, MargenY = 10, Hueco = 8;
+
+    public BarraFiltros()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        BackColor = Tema.Principal;
+        Font = new Font("Segoe UI", 9.5f);
+        Height = Alto + MargenY * 2;
+    }
+
+    public void Poner(List<Filtro> nuevos) { filtros = nuevos; Colocar(); Invalidate(); }
+
+    protected override void OnResize(EventArgs e) { base.OnResize(e); Colocar(); }
+
+    void Colocar()
+    {
+        sitios.Clear();
+        int x = MargenX, y = MargenY, ancho = Math.Max(ClientSize.Width, 200);
+        foreach (var f in filtros)
+        {
+            int w = TextRenderer.MeasureText(f.Texto, Font, new Size(int.MaxValue, Alto), TextFormatFlags.NoPadding).Width + 28;
+            if (x > MargenX && x + w > ancho - MargenX) { x = MargenX; y += Alto + Hueco; }
+            sitios.Add(new Rectangle(x, y, w, Alto));
+            x += w + (f.Aparte ? 18 : Hueco);
+        }
+        int alto = y + Alto + MargenY;
+        if (Height != alto) Height = alto;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(BackColor);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        for (int i = 0; i < filtros.Count && i < sitios.Count; i++)
+        {
+            var f = filtros[i]; var r = sitios[i];
+            using var camino = Tema.Redondeado(r, Alto / 2);
+            using var pincel = new SolidBrush(f.Activo ? Tema.Acento : i == encima ? Tema.Panel2 : Tema.Panel1);
+            g.FillPath(pincel, camino);
+            TextRenderer.DrawText(g, f.Texto, Font, r, f.Activo ? Tema.Fondo : Tema.Texto,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        int i = sitios.FindIndex(r => r.Contains(e.Location));
+        if (i != encima) { encima = i; Cursor = i >= 0 ? Cursors.Hand : Cursors.Default; Invalidate(); }
+    }
+
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (encima >= 0) { encima = -1; Invalidate(); } }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (e.Button != MouseButtons.Left) return;
+        int i = sitios.FindIndex(r => r.Contains(e.Location));
+        if (i >= 0 && i < filtros.Count) BeginInvoke(filtros[i].Pulsar);
     }
 }

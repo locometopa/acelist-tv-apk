@@ -802,11 +802,12 @@ html.webpc .playerlayer.controles, html.webpc .playerlayer.pausa, html.webpc .pl
 .linea:focus, .linea:hover { background: var(--panel2); outline: 3px solid var(--focus); outline-offset: -3px; }
 .linea.sin-canal { opacity: .72; }
 .l-bloque { flex: 0 0 5.2rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; background: var(--bg); padding: .4rem 0; }
-.l-ico { font-size: 1.3rem; line-height: 1; }
-.l-cuando { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.l-ico { display: flex; justify-content: center; color: var(--text); line-height: 1; }
+.l-ico .dico { width: 1.55rem; height: 1.55rem; }
+.dico { width: 1.15em; height: 1.15em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; }
+.l-cuando { color: var(--text); font-size: 1rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
 .l-cuando.directo { color: var(--bad); font-size: .78rem; font-weight: 700; letter-spacing: .04em; }
 .l-cuando.aplaz { color: var(--warn); font-size: .75rem; }
-.linea.vivo .l-bloque { background: rgba(229, 72, 77, .16); }
 .l-txt { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex: 1; padding: .5rem 1rem; gap: .15rem; }
 .l-comp { font-size: .78rem; color: var(--muted); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .l-tit { font-size: 1.12rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -827,7 +828,8 @@ html.webpc .playerlayer.controles, html.webpc .playerlayer.pausa, html.webpc .pl
 .dest:focus, .dest:hover { background: var(--panel2); outline: 3px solid var(--focus); outline-offset: 2px; }
 .dest.sin-canal { opacity: .75; }
 .d-top { display: flex; align-items: center; gap: .55rem; font-size: .85rem; color: var(--muted); min-width: 0; }
-.d-ico { font-size: 1.35rem; line-height: 1; }
+.d-ico { display: flex; color: var(--text); line-height: 1; }
+.d-ico .dico { width: 1.4rem; height: 1.4rem; }
 .d-comp { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; letter-spacing: .03em; }
 .d-hora { color: var(--text); font-size: 1rem; }
 .d-tit { font-size: 1.3rem; font-weight: 700; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

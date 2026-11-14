@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.59.1';
+const VERSION = '0.59.2';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -3123,19 +3123,40 @@ function sigla(equipo) {
 }
 
 // Icono del deporte (los mismos que en la app de Windows)
+// Iconos de deporte de línea, en blanco plano (como los de la app de Windows): no dependen de los emojis en color de cada aparato
+function tipoDeporte(dep) {
+  const d = sinAcentos(dep || '').toLowerCase();
+  if (d.includes('baloncesto')) return 'baloncesto';
+  if (d.includes('tenis') || d.includes('padel')) return 'tenis';
+  if (d.includes('golf')) return 'golf';
+  if (d.includes('hockey')) return 'hockey';
+  if (d.includes('esqui') || d.includes('nieve')) return 'esqui';
+  if (d.includes('motor') || d.includes('formula') || d.includes('moto') || d.includes('rally')) return 'motor';
+  if (d.includes('ciclismo')) return 'ciclismo';
+  if (d.includes('balonmano')) return 'balonmano';
+  if (d.includes('rugby') || d.includes('americano')) return 'rugby';
+  if (d.includes('boxeo') || d.includes('mma') || d.includes('lucha')) return 'boxeo';
+  if (d.includes('futbol') || d.includes('sala')) return 'futbol';
+  return 'trofeo';
+}
+
+const ICONOS_DEPORTE = {
+  futbol: '<circle cx="12" cy="12" r="9"/><path d="M12 8l3.6 2.6-1.4 4.2H9.8l-1.4-4.2z M12 8V3 M15.6 10.6l4.6-1.4 M14.2 14.8l2.8 3.9 M9.8 14.8l-2.8 3.9 M8.4 10.6L3.8 9.2"/>',
+  baloncesto: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18 M12 3v18 M5.6 5.6a9 9 0 0 1 0 12.8 M18.4 5.6a9 9 0 0 0 0 12.8"/>',
+  tenis: '<circle cx="12" cy="12" r="9"/><path d="M5.5 5.8c3.2 3.4 3.2 9 0 12.4 M18.5 5.8c-3.2 3.4-3.2 9 0 12.4"/>',
+  golf: '<path d="M12 18V3l7 3.2L12 9.4"/><ellipse cx="12" cy="19.5" rx="6" ry="1.8"/>',
+  hockey: '<path d="M7 3l5 13.5h6.5a2 2 0 0 1 0 4H11L4.5 4"/><path d="M3 20.5h4"/>',
+  esqui: '<path d="M2.5 20.5l6.5-11 4 6.5 3-4.5 5.5 9z"/><path d="M9 9.5l1.6 2.8 1.4-1.3"/>',
+  motor: '<path d="M5 21V3.5 M5 4h13l-2.5 4.5L18 13H5"/><path d="M9 4v9 M13 4v9 M5 8.5h11.5"/>',
+  ciclismo: '<circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5l4-7.5h6l3 7.5 M9.5 9l3.5 7.5 M14 5.5h2.5"/>',
+  balonmano: '<circle cx="12" cy="12" r="9"/><path d="M3.8 8.5c5.2 2.3 11.2 2.3 16.4 0 M3.8 15.5c5.2-2.3 11.2-2.3 16.4 0"/>',
+  rugby: '<ellipse cx="12" cy="12" rx="10" ry="6" transform="rotate(-45 12 12)"/><path d="M9 15l6-6 M10.5 11.5l2 2 M12.5 9.5l2 2"/>',
+  boxeo: '<path d="M7 11V7.5A4.5 4.5 0 0 1 11.5 3h2A4.5 4.5 0 0 1 18 7.5V12a5 5 0 0 1-5 5H9.5A2.5 2.5 0 0 1 7 14.5z"/><path d="M7 11H5.5a2 2 0 0 0 0 4H7 M8.5 17v4h8.5v-4.6"/>',
+  trofeo: '<path d="M8 3.5h8V9a4 4 0 0 1-8 0z M8 5.5H5a3 3 0 0 0 3.2 4.3 M16 5.5h3a3 3 0 0 1-3.2 4.3 M12 13v4 M8.5 21h7 M9.5 17h5v4h-5z"/>',
+};
+
 function iconoDeporte(dep) {
-  const d = sinAcentos(dep).toLowerCase();
-  if (d.includes('baloncesto')) return '🏀';
-  if (d.includes('tenis') || d.includes('padel')) return '🎾';
-  if (d.includes('golf')) return '⛳';
-  if (d.includes('esqui') || d.includes('nieve')) return '⛷️';
-  if (d.includes('motor') || d.includes('formula') || d.includes('moto') || d.includes('rally')) return '🏁';
-  if (d.includes('ciclismo')) return '🚴';
-  if (d.includes('balonmano')) return '🤾';
-  if (d.includes('rugby')) return '🏉';
-  if (d.includes('boxeo') || d.includes('mma') || d.includes('lucha')) return '🥊';
-  if (d.includes('futbol') || d.includes('sala')) return '⚽';
-  return '🏆';
+  return `<svg class="dico" viewBox="0 0 24 24" aria-hidden="true">${ICONOS_DEPORTE[tipoDeporte(dep)]}</svg>`;
 }
 
 const COMP_TOP = /champions|europa league|conference|laliga|la liga|primera divisi|copa del rey|supercopa|mundial|eurocopa|premier|serie a|bundesliga|ligue 1|nations|selecci|formula|gran premio|motogp|nba|euroliga|acb|roland|wimbledon|atp|wta|tour de|giro|vuelta|amistoso/i;
@@ -3299,7 +3320,7 @@ function renderHome() {
   if (dest) {
     const { ev, m } = dest;
     const equipos = ev.titulo.split(' - ');
-    const arte = equipos.length === 2 && iconoDeporte(ev.deporte) === '⚽'
+    const arte = equipos.length === 2 && tipoDeporte(ev.deporte) === 'futbol'
       ? `<div class="hero-art" aria-hidden="true"><i class="campo"></i><i class="medio"></i><i class="circulo"></i><i class="area1"></i><i class="area2"></i>
           <b class="l">${esc(sigla(equipos[0]))}</b><b class="r">${esc(sigla(equipos[1]))}</b></div>` : '';
     const chk = lastCheck(m.canal);
