@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.57.0';
+const VERSION = '0.58.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -24,14 +24,19 @@ let engine;
 const $ = (sel, root = document) => root.querySelector(sel);
 
 // Diseño de móvil (pantalla vertical y táctil) o de tele (mando). Automático salvo que se elija en Ajustes.
+// En una tele nunca se usa el diseño de móvil: con el mando no se podría volver a los menús.
+const UA = navigator.userAgent || '';
+const ESTELE = /AFT\w|Android TV|Google ?TV|BRAVIA|SMART-TV|SmartTV|Chromecast|Fire ?TV|;\s*TV\b/i.test(UA)
+  || (NATIVE && !/Mobile|iPhone/i.test(UA) && Math.min(screen.width, screen.height) >= 600);
 function pareceMovil() {
-  const ua = navigator.userAgent || '';
-  if (/AFT\w|Android TV|GoogleTV|BRAVIA|SMART-TV|SmartTV|;\s*TV\b/i.test(ua)) return false;
+  if (ESTELE) return false;
   const tactil = window.matchMedia && matchMedia('(pointer: coarse)').matches;
-  return !!tactil && (/Mobile|iPhone/i.test(ua) || Math.min(screen.width, screen.height) < 600);
+  return !!tactil && (/Mobile|iPhone/i.test(UA) || Math.min(screen.width, screen.height) < 600);
 }
-// El diseño de móvil solo en pantallas táctiles: en una tele con mando no se podría volver a los menús
-const TACTIL = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 0;
+// El diseño de móvil solo en pantallas táctiles que no son una tele
+const TACTIL = !ESTELE && (!!(window.matchMedia && matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 0);
+// Si en una tele se dejó puesto «móvil» (versiones anteriores), se vuelve a automático para poder usar los ajustes
+if (ESTELE && store.settings.diseno === 'movil') store.setSettings({ diseno: 'auto' });
 const MOVIL = (store.settings.diseno === 'movil' && TACTIL) || (store.settings.diseno !== 'tele' && pareceMovil());
 document.documentElement.classList.toggle('movil', MOVIL);
 // En el navegador (PC o móvil) el reproductor lleva controles de ratón/dedo; en la tele, el HUD de mando
@@ -2497,6 +2502,7 @@ const SETTING_ROWS = [
   { key: 'player', label: 'Reproductor preferido', values: () => Object.keys(PLAYERS), show: (v) => PLAYERS[v] },
   { key: 'intro', label: 'Vídeo de entrada al abrir la app', values: () => [true, false], show: (v) => (v !== false ? 'Sí' : 'No') },
   { key: 'filasCategorias', label: 'Filas por categoría en Inicio', values: () => [true, false], show: (v) => (v !== false ? 'Sí' : 'No') },
+  { key: 'destacados', label: 'Eventos destacados del día en Inicio', values: () => [3, 2, 4, 0], show: (v) => (v ? `${v} cuadrados` : 'No') },
   { key: 'inicioLista', label: 'Inicio en modo lista (más limpio)', values: () => [false, true], show: (v) => (v ? 'Sí' : 'No') },
   { key: 'formatoStream', label: 'Formato de Ace Stream (reproductor interno)', values: () => ['ts', 'hls'],
     show: (v) => (v === 'hls' ? 'HLS troceado (si se congela la imagen)' : 'Normal (TS)') },
@@ -2620,11 +2626,11 @@ async function settingClick(e) {
       return;
     }
     const vals = def.values();
-    const next = vals[(vals.indexOf(cur) + 1) % vals.length];
+    const next = vals[(vals.indexOf(cur ?? vals[0]) + 1) % vals.length];
     store.setSettings({ [def.key]: next });
     if (def.key === 'diseno') { store.escribirPendiente(); setTimeout(() => location.reload(), 150); return; }
     if (def.key === 'sincroLigero') { ui.sincro.huella = null; if (next === false) traerSincro(true); else empujarSincro(); }   // apagada: se piden todos los canales; encendida: se suben los cambios y se quitan los de listas apagadas
-    if (def.key === 'filasCategorias' || def.key === 'inicioLista') renderHome();
+    if (def.key === 'filasCategorias' || def.key === 'inicioLista' || def.key === 'destacados') renderHome();
     if (def.key === 'view' || def.key === 'agrupar') render();
     return;
   }
@@ -3086,6 +3092,55 @@ function sigla(equipo) {
   return base.slice(0, 3).toUpperCase();
 }
 
+// Icono del deporte (los mismos que en la app de Windows)
+function iconoDeporte(dep) {
+  const d = sinAcentos(dep).toLowerCase();
+  if (d.includes('baloncesto')) return '🏀';
+  if (d.includes('tenis') || d.includes('padel')) return '🎾';
+  if (d.includes('golf')) return '⛳';
+  if (d.includes('esqui') || d.includes('nieve')) return '⛷️';
+  if (d.includes('motor') || d.includes('formula') || d.includes('moto') || d.includes('rally')) return '🏁';
+  if (d.includes('ciclismo')) return '🚴';
+  if (d.includes('balonmano')) return '🤾';
+  if (d.includes('rugby')) return '🏉';
+  if (d.includes('boxeo') || d.includes('mma') || d.includes('lucha')) return '🥊';
+  if (d.includes('futbol') || d.includes('sala')) return '⚽';
+  return '🏆';
+}
+
+const COMP_TOP = /champions|europa league|conference|laliga|la liga|primera divisi|copa del rey|supercopa|mundial|eurocopa|premier|serie a|bundesliga|ligue 1|nations|selecci|formula|gran premio|motogp|nba|euroliga|acb|roland|wimbledon|atp|wta|tour de|giro|vuelta|amistoso/i;
+const EQUIPOS_TOP = /real madrid|barcelona|bar[cç]a|atl[eé]tico|sevilla|betis|athletic|real sociedad|valencia|villarreal|espa[nñ]a|alonso|sainz|alcaraz|nadal/i;
+
+// Los eventos que más merecen un cuadrado hoy: en directo y con canal mío primero, luego competiciones y equipos grandes
+function eventosDestacados(n, excluirId) {
+  const hoy = new Date().toDateString();
+  const vistos = new Set();
+  const todos = [...agenda.directoTodos(), ...agenda.siguientes(24)].filter((x) => {
+    if (x.ev.id === excluirId || vistos.has(x.ev.id)) return false;
+    vistos.add(x.ev.id);
+    return agenda.enCurso(x.ev) || new Date(x.ev.inicio).toDateString() === hoy;
+  });
+  const ahora = Date.now();
+  const nota = (x) => (agenda.enCurso(x.ev) ? 50 : 0) + (x.m ? 30 : 0) + (x.m && x.m.vivo ? 10 : 0)
+    + (COMP_TOP.test(`${x.ev.competicion} ${x.ev.deporte}`) ? 25 : 0) + (EQUIPOS_TOP.test(x.ev.titulo) ? 20 : 0)
+    + (tieneAviso(x.ev.id) ? 25 : 0) - Math.max(0, (x.ev.inicio - ahora) / 3600e3);
+  return todos.map((x) => ({ x, n: nota(x) })).sort((a, b) => b.n - a.n).slice(0, n).map((o) => o.x)
+    .sort((a, b) => a.ev.inicio - b.ev.inicio);
+}
+
+function tarjetaDestacada({ ev, m }) {
+  const vivo = agenda.enCurso(ev);
+  const hora = vivo ? '<span class="livebadge">EN DIRECTO</span>' : `<b class="d-hora">${esc(agenda.hora(ev.inicio))}</b>`;
+  let donde;
+  if (m) donde = `<span class="punto ${m.canal.url ? 'ok' : STATUS[statusOf(m.canal)].cls}"></span> ${esc(m.canal.title)}`;
+  else if ((ev.gratis || []).length) donde = `<span class="libre">En abierto</span> ${esc(ev.gratis.slice(0, 2).join(' · '))}`;
+  else donde = `<span class="muted">${esc(ev.canales.slice(0, 2).join(' · ') || 'Sin canal anunciado')}</span>`;
+  return `<button class="dest${m ? '' : ' sin-canal'}${vivo ? ' vivo' : ''}" data-hkey="dest:${esc(ev.id)}" data-hev="${esc(ev.id)}">
+    <span class="d-top"><span class="d-ico">${iconoDeporte(ev.deporte)}</span><span class="d-comp">${esc(ev.competicion || ev.deporte)}</span>${hora}</span>
+    <span class="d-tit">${esc(ev.titulo.replace(' - ', ' – '))}</span>
+    <span class="d-pie">${donde}${m ? '<span class="d-play">▶</span>' : ''}</span></button>`;
+}
+
 function tarjetaEvento({ ev, m }, tipo) {
   const vivo = agenda.enCurso(ev);
   const hora = vivo ? '<span class="livebadge">EN DIRECTO</span>' : `<b>${esc(agenda.hora(ev.inicio))}</b>`;
@@ -3101,7 +3156,7 @@ function tarjetaEvento({ ev, m }, tipo) {
     pie = `<span class="muted">${esc(ev.canales.slice(0, 2).join(' · ') || 'Sin canal anunciado')}</span>`;
   }
   return `<button class="tarjeta${m ? '' : ' sin-canal'}" data-hkey="${tipo}:${esc(ev.id)}" data-hev="${esc(ev.id)}">
-    <span class="t-caja"><span class="t-comp">${hora}<span>${esc(ev.competicion || ev.deporte)}</span>${tieneAviso(ev.id) ? '<span class="campana">🔔</span>' : ''}</span>
+    <span class="t-caja"><span class="t-comp">${hora}<span>${iconoDeporte(ev.deporte)} ${esc(ev.competicion || ev.deporte)}</span>${tieneAviso(ev.id) ? '<span class="campana">🔔</span>' : ''}</span>
       <span class="t-tit">${esc(ev.titulo.replace(' - ', ' – '))}</span></span>
     <span class="t-pie">${pie}</span></button>`;
 }
@@ -3145,13 +3200,36 @@ function filasPorCategoria(max = 6) {
 
 function lineaEvento({ ev, m }, tipo) {
   const vivo = agenda.enCurso(ev);
-  const hora = vivo ? '<span class="livebadge">DIRECTO</span>' : `<b class="l-hora">${esc(agenda.hora(ev.inicio))}</b>`;
+  const cuando = ev.aplazado ? '<span class="l-cuando aplaz">APLAZ.</span>' : vivo ? '<span class="l-cuando directo">DIRECTO</span>' : `<b class="l-cuando">${esc(agenda.hora(ev.inicio))}</b>`;
   let donde;
-  if (m) donde = `<span class="punto ${m.canal.url ? 'ok' : STATUS[statusOf(m.canal)].cls}"></span> ${esc(m.canal.title)}`;
+  if (m) donde = `<span class="punto ${m.canal.url ? 'ok' : STATUS[statusOf(m.canal)].cls}"></span>${esc(m.canal.title)}`;
   else if ((ev.gratis || []).length) donde = `<span class="libre">En abierto</span> ${esc(ev.gratis.slice(0, 2).join(' · '))}`;
-  else donde = `<span class="muted">${esc(ev.canales.slice(0, 2).join(' · ') || 'Sin canal anunciado')}</span>`;
-  return `<button class="linea${m ? '' : ' sin-canal'}" data-hkey="${tipo}:${esc(ev.id)}" data-hev="${esc(ev.id)}">${hora}
-    <span class="l-txt"><span class="l-tit">${esc(ev.titulo.replace(' - ', ' – '))}</span><span class="l-sub">${esc(ev.competicion || ev.deporte)} · ${donde}</span></span></button>`;
+  else donde = `<span class="muted">${esc(ev.canales.slice(0, 2).join(' · ') || 'Sin canal')}</span>`;
+  return `<button class="linea${m ? '' : ' sin-canal'}${vivo ? ' vivo' : ''}" data-hkey="${tipo}:${esc(ev.id)}" data-hev="${esc(ev.id)}">
+    <span class="l-bloque"><span class="l-ico">${iconoDeporte(ev.deporte)}</span>${cuando}</span>
+    <span class="l-txt"><span class="l-comp">${tieneAviso(ev.id) ? '🔔 ' : ''}${esc((ev.competicion || ev.deporte).toUpperCase())}</span><span class="l-tit">${esc(ev.titulo.replace(' - ', ' – '))}</span></span>
+    <span class="l-donde">${donde}${m ? '<span class="l-play">▶</span>' : ''}</span></button>`;
+}
+
+// Cabecera de día como en la agenda de Marca
+function cabeceraDia(ts) {
+  const d = new Date(ts);
+  const hoy = new Date();
+  const dif = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())) / 864e5);
+  const nombre = dif === 0 ? 'Hoy' : dif === 1 ? 'Mañana' : '';
+  const largo = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  return `<h3 class="l-dia">${nombre ? nombre + ' · ' : ''}${esc(largo.charAt(0).toUpperCase() + largo.slice(1))}</h3>`;
+}
+
+function filasConDias(items, tipo) {
+  let dia = '';
+  const out = [];
+  for (const x of items) {
+    const k = new Date(x.ev.inicio).toDateString();
+    if (k !== dia) { dia = k; out.push(cabeceraDia(x.ev.inicio)); }
+    out.push(lineaEvento(x, tipo));
+  }
+  return out;
 }
 
 function lineaCanal(c) {
@@ -3166,12 +3244,12 @@ function renderHomeLista() {
   const prevKey = document.activeElement?.dataset?.hkey;
   const wasIn = !!document.activeElement?.closest?.('#sec-inicio');
   ui.destacado = null;
-  const bloque = (titulo, filas, vacio) => `<section class="lista-bloque" aria-label="${esc(titulo)}"><h2>${esc(titulo)} <small>${filas.length}</small></h2>${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</section>`;
+  const bloque = (titulo, filas, vacio) => `<section class="lista-bloque" aria-label="${esc(titulo)}"><h2>${esc(titulo)} <small>${filas.filter((f) => !f.startsWith('<h3')).length}</small></h2>${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</section>`;
   const vistos = vistosRecientes().slice(0, 15).map((x) => lineaCanal(x.c));
   sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo" data-autofocus>▦ Ver en tarjetas</button></div>`
     + bloque('En directo', agenda.directoTodos().map((x) => lineaEvento(x, 'directo')), agenda.st.cargando ? 'Cargando la agenda…' : 'Ahora no hay eventos en directo')
     + bloque('Vistos recientemente', vistos, 'Aún no has visto ningún canal')
-    + bloque('A continuación', agenda.siguientes(24).map((x) => lineaEvento(x, 'sigue')), 'No hay más eventos en las próximas horas');
+    + bloque('A continuación', filasConDias(agenda.siguientes(24), 'sigue'), 'No hay más eventos en las próximas horas');
   if (ui.section === 'inicio' && (wasIn || document.activeElement === document.body)) {
     const el = (prevKey && sec.querySelector(`[data-hkey="${CSS.escape(prevKey)}"]`)) || sec.querySelector('[data-autofocus]');
     if (el) el.focus({ preventScroll: true });
@@ -3191,7 +3269,7 @@ function renderHome() {
   if (dest) {
     const { ev, m } = dest;
     const equipos = ev.titulo.split(' - ');
-    const arte = equipos.length === 2
+    const arte = equipos.length === 2 && iconoDeporte(ev.deporte) === '⚽'
       ? `<div class="hero-art" aria-hidden="true"><i class="campo"></i><i class="medio"></i><i class="circulo"></i><i class="area1"></i><i class="area2"></i>
           <b class="l">${esc(sigla(equipos[0]))}</b><b class="r">${esc(sigla(equipos[1]))}</b></div>` : '';
     const chk = lastCheck(m.canal);
@@ -3249,7 +3327,10 @@ function renderHome() {
   const canales = (favs.length ? favs : mejoresCanales().filter((c) => statusOf(c) === 'alive')).slice(0, 15);
   const fila = (titulo, html) => (html ? `<section class="fila" aria-label="${esc(titulo)}"><h2>${esc(titulo)}</h2><div class="fila-scroll">${html}</div></section>` : '');
   const vistos = vistosRecientes().slice(0, 12);
-  sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo">☰ Ver en lista</button></div>` + hero
+  const nDest = Number(store.settings.destacados ?? 3);
+  const dests = nDest > 0 && agenda.st.eventos.length ? eventosDestacados(nDest, destId) : [];
+  const bloqueDest = dests.length ? `<section class="fila destacados n${dests.length}" aria-label="Destacados de hoy"><h2>Destacados de hoy</h2><div class="dest-grid">${dests.map(tarjetaDestacada).join('')}</div></section>` : '';
+  sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo">☰ Ver en lista</button></div>` + hero + bloqueDest
     + fila('En directo ahora', enDirecto.map((x) => tarjetaEvento(x, 'directo')).join(''))
     + fila('Vistos recientemente', vistos.map((x) => tarjetaCanal(x.c, 'v')).join(''))
     + fila('A continuación', siguen.map((x) => tarjetaEvento(x, 'sigue')).join(''))

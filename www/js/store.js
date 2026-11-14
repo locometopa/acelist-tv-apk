@@ -75,6 +75,7 @@ export function defaultSettings(native) {
     hideDead: false,
     diseno: 'auto',        // 'auto' | 'tele' | 'movil' (pantalla táctil)
     filasCategorias: true, // filas por categoría en Inicio
+    destacados: 3,         // cuadrados de eventos destacados del día en Inicio (0 = ninguno)
     inicioLista: false,    // Inicio en modo lista (filas compactas) en vez de tarjetas
     formatoStream: 'ts',   // cómo pide el reproductor interno el canal al motor: 'ts' o 'hls'
     intro: true,           // vídeo de entrada si el servidor de casa tiene uno
