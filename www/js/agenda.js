@@ -287,6 +287,10 @@ function enlaceYoutube(ev) {
 
 // ---------- módulo ----------
 
+const URLS_MOTOR = ['https://www.futbolenlatv.es/deporte/automovilismo', 'https://www.futbolenlatv.es/deporte/motociclismo'];
+const ES_MOTOR = /f[oó]rmula|\bf[12]\b|motor|moto ?gp|moto ?[23]\b|motociclismo|automovilismo|rally|dakar|nascar|indycar|superbike|\bwec\b|le mans|karting|\bdtm\b/i;
+const OTRO_DEPORTE = /f[uú]tbol|balonc|tenis|balonm|rugby|hockey|golf|ciclismo|boxeo|mma|voley|vóley|p[aá]del|b[eé]isbol|atletismo/i;
+
 export function crearAgenda(app) {
   const { store, $, esc, toast, openLayer, closeLayer, focusEl, statusOf, lastCheck, STATUS, peersTxt } = app;
   const st = { eventos: [], fetchedAt: null, cargando: false, error: null, dia: null, filtro: 'con', deporte: null, busqueda: '' };
@@ -361,7 +365,8 @@ export function crearAgenda(app) {
     try {
       const f = fuente();
       const html = await app.fetchText(f.url, f.charset);
-      const eventos = f.leer === 'leerMarca' ? leerMarca(html) : f.leer === 'leerCiriaco' ? leerCiriaco(html) : leerAgenda(html);
+      let eventos = f.leer === 'leerMarca' ? leerMarca(html) : f.leer === 'leerCiriaco' ? leerCiriaco(html) : leerAgenda(html);
+      eventos = await conMotor(eventos);
       if (!eventos.length) throw new Error('La página no trae eventos o ha cambiado de formato');
       st.eventos = eventos;
       st.fetchedAt = new Date().toISOString();
@@ -372,6 +377,21 @@ export function crearAgenda(app) {
       st.cargando = false;
       refreshView();
     }
+  }
+
+  // Motor (F1, MotoGP, rally…): la agenda general casi nunca lo trae; se leen aparte sus páginas de futbolenlatv
+  // (próximos 15 días) y todo va bajo el deporte «Motor». Si fallan, la agenda sigue sin ellas.
+  async function conMotor(eventos) {
+    const ahora = Date.now();
+    const extra = await Promise.all(URLS_MOTOR.map((u) => app.fetchText(u).then(leerAgenda).catch(() => [])));
+    const ids = new Set(eventos.map((e) => e.id));
+    const nuevos = extra.flat().filter((e) => e.inicio && e.inicio > ahora - 6 * 3600e3 && e.inicio < ahora + 15 * 864e5 && !ids.has(e.id))
+      .map((e) => ({ ...e, deporte: 'Motor' }));
+    const todos = [...eventos, ...nuevos];
+    for (const e of todos) {
+      if (ES_MOTOR.test(e.deporte || '') || (!OTRO_DEPORTE.test(e.deporte || '') && ES_MOTOR.test(e.competicion || ''))) e.deporte = 'Motor';
+    }
+    return todos.sort((a, b) => (a.inicio || 0) - (b.inicio || 0));
   }
 
   function dias() {
