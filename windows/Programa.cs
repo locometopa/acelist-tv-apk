@@ -146,7 +146,7 @@ sealed class Ventana : Form
     readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
     readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 38, ColumnCount = 2, RowCount = 1 };
     readonly Button pestCanales, pestAgenda;
-    readonly Button bLista, bAmpliar, bAudio;
+    readonly Button bAmpliar, bAudio;
     bool ampliado;        // el vídeo ocupa toda la ventana (sin lista ni ficha)
     bool viaAac;          // el sonido de este canal pasa por el servidor (convertido a AAC) porque aquí no se oía
     int pistasProbadas;
@@ -162,7 +162,7 @@ sealed class Ventana : Form
     readonly Panel barra = new() { Dock = DockStyle.Bottom, Height = 46, BackColor = Panel1, Padding = new Padding(8, 6, 8, 6) };
     readonly Label estado = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Text = "Elige un partido o un canal" };
     readonly TrackBar volumen = new() { Dock = DockStyle.Right, Width = 130, Minimum = 0, Maximum = 100, TickStyle = TickStyle.None, AutoSize = false, Height = 30 };
-    readonly FlowLayoutPanel botonesBarra = new() { Dock = DockStyle.Right, Width = 600, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+    readonly FlowLayoutPanel botonesBarra = new() { Dock = DockStyle.Right, Width = 380, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
 
     enum Seccion { Hoy, Agenda, Canales, Favoritos }
     VistaAgenda vistaAgenda = null!;
@@ -174,7 +174,12 @@ sealed class Ventana : Form
     {
         lateral.Visible = EsVideo && !completa && !ampliado && !soloVideo && (!ajustes.ListaOculta || listaForzada);
         ficha.Visible = EsVideo && !completa && !ampliado && cuerpo.ClientSize.Width >= (lateral.Visible ? 1000 : 700);
-        if (bLista != null) { bLista.Text = lateral.Visible ? "Ocultar lista" : "Ver lista"; bAmpliar.Text = ampliado ? "Reducir" : "Ampliar"; }
+        if (bAmpliar != null)
+        {
+            bool grande = !lateral.Visible && !ficha.Visible;
+            bAmpliar.Text = grande ? "\uE8A0" : "\uE89F";
+            ayudas.SetToolTip(bAmpliar, grande ? "Volver a ver la lista y la ficha (Z)" : "Ampliar el vídeo: quita la lista y la ficha (Z)");
+        }
     }
     sealed record Par(Evento Ev, Canal Canal);
     Seccion seccion = Seccion.Hoy;
@@ -346,17 +351,22 @@ sealed class Ventana : Form
 
         // ----- barra de abajo -----
         volumen.Value = Math.Clamp(ajustes.Volumen, 0, 100);
-        botonesBarra.Controls.Add(Boton("▲", (_, _) => Zapear(-1), 38, "Canal anterior (↑ en pantalla completa)"));
-        botonesBarra.Controls.Add(Boton("▼", (_, _) => Zapear(1), 38, "Canal siguiente (↓ en pantalla completa)"));
-        bLista = Boton("Ocultar lista", (_, _) => AlternarLista(), 104, "Ocultar o mostrar la lista de canales (tecla L)");
-        bAmpliar = Boton("Ampliar", (_, _) => Ampliar(!ampliado), 76, "El vídeo ocupa toda la ventana, sin lista ni ficha (tecla Z)");
-        bAudio = Boton("Audio", (_, _) => MenuAudio(), 64, "Pistas de sonido y arreglo si no se oye");
-        botonesBarra.Controls.Add(bLista);
-        botonesBarra.Controls.Add(bAmpliar);
-        botonesBarra.Controls.Add(bAudio);
-        botonesBarra.Controls.Add(Boton("Otro enlace", (_, _) => OtroEnlace(), 96, "Probar el siguiente enlace de este canal (E)"));
-        botonesBarra.Controls.Add(Boton("Parar", (_, _) => Parar(), 60));
-        botonesBarra.Controls.Add(Boton("Pantalla completa", (_, _) => PantallaCompleta(!completa), 128, "Pantalla completa (F o doble clic)"));
+        // Barra de iconos (el nombre de cada uno sale al pasar el ratón)
+        bAmpliar = Icono("\uE89F", (_, _) => Ampliar(lateral.Visible || ficha.Visible), "Ampliar el vídeo: quita la lista y la ficha (Z)");
+        bAudio = Icono("\uE8D6", (_, _) => MenuAudio(), "Sonido: pistas de audio y arreglo si no se oye");
+        var bGrabar = Icono("\uE7C8", (_, _) => { }, "Grabar este canal en el servidor");
+        bGrabar.ForeColor = Color.FromArgb(240, 110, 110);
+        bGrabar.Click += (_, _) => MenuGrabarCanal(bGrabar);
+        foreach (var b in new[]
+        {
+            Icono("\uE70E", (_, _) => Zapear(-1), "Canal anterior (↑ en pantalla completa)"),
+            Icono("\uE70D", (_, _) => Zapear(1), "Canal siguiente (↓ en pantalla completa)"),
+            Icono("\uE8AB", (_, _) => OtroEnlace(), "Probar otro enlace de este canal (E)"),
+            bAudio, bGrabar,
+            Icono("\uE71A", (_, _) => Parar(), "Parar"),
+            bAmpliar,
+            Icono("\uE740", (_, _) => PantallaCompleta(!completa), "Pantalla completa (F o doble clic)"),
+        }) botonesBarra.Controls.Add(b);
         estado.Cursor = Cursors.Hand;
         estado.Click += (_, _) => { if (!EsVideo && actual != null) IrAlVideo(); };
         barra.Controls.Add(estado);
@@ -490,6 +500,16 @@ sealed class Ventana : Form
     }
 
     // ---------- piezas de interfaz ----------
+    Button Icono(string glifo, EventHandler alPulsar, string ayuda)
+    {
+        var b = Boton(glifo, alPulsar, 40, ayuda);
+        b.Font = Tema.Iconos;
+        b.Height = 34;
+        b.Margin = new Padding(0, 0, 4, 0);
+        b.FlatAppearance.MouseOverBackColor = Color.FromArgb(78, 78, 78);
+        return b;
+    }
+
     Button Boton(string texto, EventHandler alPulsar, int ancho, string? ayuda = null)
     {
         var b = new Button { Text = texto, Width = ancho, Height = 32, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Texto, Margin = new Padding(0, 0, 6, 6), TabStop = false };
@@ -2103,6 +2123,8 @@ sealed class Ventana : Form
     {
         if (poner && !EsVideo) { if (actual == null) return; IrAlVideo(); }
         ampliado = poner;
+        // Reducir enseña otra vez la lista aunque la hubieras escondido
+        if (!poner) { soloVideo = false; listaForzada = false; if (ajustes.ListaOculta) { ajustes.ListaOculta = false; ajustes.Guardar(); } }
         ColocarLateral();
         ActualizarRiel();
     }
@@ -2302,7 +2324,7 @@ sealed class Ventana : Form
             case Keys.H: if (!completa) { Ir(seccion == Seccion.Hoy ? Seccion.Canales : Seccion.Hoy); return true; } break;
             case Keys.E: OtroEnlace(); return true;
             case Keys.A: if (!completa) { Ir(Seccion.Hoy); return true; } break;
-                case Keys.Z: if (!completa && EsVideo) { Ampliar(!ampliado); return true; } break;
+                case Keys.Z: if (!completa && EsVideo) { Ampliar(lateral.Visible || ficha.Visible); return true; } break;
             case Keys.M: reproductor.Mute = !reproductor.Mute; Estado(reproductor.Mute ? "Silenciado" : TextoSonando()); return true;
             case Keys.Space: if (actual != null) Parar(); else if (EsVideo) ReproducirSeleccionado(); return true;
             case Keys.Up: if (completa) { Zapear(-1); return true; } break;
