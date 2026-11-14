@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.61.0';
+const VERSION = '0.61.1';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -594,6 +594,22 @@ function elegirDe(titulo, opciones, actual, aplicar, { cols = false } = {}) {
 }
 
 // Categorías que no se quieren ver nunca (se ocultan en toda la app, no se borran)
+// Menú de opciones para la agenda de Inicio (como elegirDe, pero sin repintar la lista de canales)
+function menuInicio(titulo, opciones, actual, aplicar, { cols = false } = {}) {
+  const layer = openLayer(`
+    <h2>${esc(titulo)}</h2>
+    <div class="vmenu${cols ? ' cols' : ''}">
+      ${opciones.map((o) => `<button class="mbtn${o.v === actual ? ' check on' : ''}" data-v="${esc(o.v)}"${o.v === actual ? ' data-autofocus' : ''}>
+        <span class="mtxt">${o.ico || ''}${o.v === actual ? '✓ ' : ''}${esc(o.l)}${o.d ? `<small class="mdesc">${esc(o.d)}</small>` : ''}</span>${o.n != null ? `<b>${o.n}</b>` : ''}</button>`).join('')}
+    </div>`, { cls: cols ? 'wide' : '' });
+  layer.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    closeLayer(layer);
+    aplicar(b.dataset.v);
+  });
+}
+
 function elegirOcultas() {
   const layer = openLayer('<div class="vmenu"></div>', { cls: 'wide' });
   const dlg = $('.dialog', layer);
@@ -3304,23 +3320,23 @@ function bloqueAgenda() {
   const lista = agenda.visibles().map(agenda.conCanal);
   const ahora = Date.now();
   lista.sort((a, b) => (agenda.enCurso(b.ev, ahora) - agenda.enCurso(a.ev, ahora)) || (a.ev.inicio - b.ev.inicio));
-  const chip = (on, key, attrs, txt) => `<button class="chip${on ? ' on' : ''}" data-hkey="ag:${esc(key)}" ${attrs}>${txt}</button>`;
   const actualizada = st.cargando ? 'actualizando…' : st.fetchedAt ? `actualizada ${new Date(st.fetchedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : '';
   const filas = st.busqueda ? filasConDias(lista, 'ag') : lista.map((x) => lineaEvento(x, 'ag'));
   const vacio = st.cargando ? 'Cargando la agenda…' : st.busqueda ? 'Ningún evento coincide con la búsqueda.'
     : st.filtro === 'con' ? 'Ningún evento de este día coincide con tus canales. Prueba «Todos».' : 'No hay eventos este día.';
+  // Una sola fila de selectores: cada uno abre su menú (día, qué eventos, deporte) en vez de decenas de botones
+  const diaTxt = st.busqueda ? 'Todos los días' : (ds.find((d) => d.key === st.dia)?.label || 'Hoy');
+  const filtroTxt = { con: 'Con mis canales', todos: 'Todos los eventos', abierto: 'En abierto' }[st.filtro] || 'Con mis canales';
+  const sel = (key, h, txt, on = false) => `<button class="selag${on ? ' on' : ''}" data-hkey="ag:${key}" data-h="${h}">${txt}<i>▾</i></button>`;
   return `<section class="lista-bloque agenda-inicio" id="agenda-inicio" aria-label="Agenda">
     <h2>Agenda <small>${esc(actualizada)}</small></h2>
-    <div class="filters dias">${st.busqueda ? '' : ds.map((d) => chip(st.dia === d.key, 'd:' + d.key, `data-h="dia" data-dia="${d.key}"`, esc(d.label))).join('')}</div>
-    <div class="filters">
-      ${chip(st.filtro === 'con', 'f:con', 'data-h="filtro" data-filtro="con"', 'Con mis canales')}
-      ${chip(st.filtro === 'todos', 'f:todos', 'data-h="filtro" data-filtro="todos"', 'Todos')}
-      ${chip(st.filtro === 'abierto', 'f:abierto', 'data-h="filtro" data-filtro="abierto"', 'En abierto')}
-      ${chip(!!st.busqueda, 'buscar', 'data-h="abuscar"', `🔍 ${st.busqueda ? esc(st.busqueda) + ' ✕' : 'Buscar evento'}`)}
-      ${chip(false, 'fuente', 'data-h="afuente"', 'Fuente: ' + esc(agenda.fuente().label))}
-      ${chip(false, 'refresh', 'data-h="arefresh"', 'Actualizar')}
+    <div class="selags">
+      ${sel('dia', 'mdia', `📅 ${esc(diaTxt)}`)}
+      ${sel('filtro', 'mfiltro', esc(filtroTxt))}
+      ${sel('dep', 'mdep', st.deporte ? `${iconoDeporte(st.deporte)} ${esc(st.deporte)}` : 'Todos los deportes', !!st.deporte)}
+      <button class="selag${st.busqueda ? ' on' : ''}" data-hkey="ag:buscar" data-h="abuscar">🔍 ${st.busqueda ? esc(st.busqueda) + ' ✕' : 'Buscar'}</button>
+      <button class="selag" data-hkey="ag:mas" data-h="amas">⋯</button>
     </div>
-    ${deportes.length > 1 ? `<div class="filters deportes">${chip(!st.deporte, 's:', 'data-h="dep" data-dep=""', 'Todos los deportes')}${deportes.map((d) => chip(st.deporte === d, 's:' + d, `data-h="dep" data-dep="${esc(d)}"`, `${iconoDeporte(d)} ${esc(d)}`)).join('')}</div>` : ''}
     ${st.error ? `<p class="bad-text">No se pudo actualizar la agenda: ${esc(st.error)}</p>` : ''}
     <div class="ag-filas">${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</div>
   </section>`;
@@ -3442,9 +3458,40 @@ function homeClick(e) {
     if (a === 'modo') { store.setSettings({ inicioLista: !store.settings.inicioLista }); renderHome(); return; }
     if (a === 'agenda') { document.getElementById('agenda-inicio')?.scrollIntoView({ block: 'start' }); focusEl(document.querySelector('#agenda-inicio .chip')); }
     const st = agenda.st;
-    if (a === 'dia') { st.dia = h.dataset.dia; st.deporte = null; renderHome(); return; }
-    if (a === 'filtro') { st.filtro = h.dataset.filtro; renderHome(); return; }
-    if (a === 'dep') { st.deporte = h.dataset.dep || null; renderHome(); return; }
+    const volver = (k) => { renderHome(); focusEl(document.querySelector(`[data-hkey="ag:${k}"]`)); };
+    if (a === 'mdia') {
+      const ds = agenda.dias().slice(0, 7);
+      const n = (k) => st.eventos.filter((e) => e.inicio && agenda.claveDia(e.inicio) === k).length;
+      menuInicio('Día', ds.map((d) => ({ v: d.key, l: d.label, n: n(d.key) })), st.dia, (v) => { st.dia = v; st.busqueda = ''; st.deporte = null; volver('dia'); });
+      return;
+    }
+    if (a === 'mfiltro') {
+      menuInicio('Qué eventos', [{ v: 'con', l: 'Con mis canales', d: 'Solo los que puedes ver con tus listas' },
+        { v: 'todos', l: 'Todos los eventos' }, { v: 'abierto', l: 'En abierto', d: 'TDT, RTVE Play, autonómicas, YouTube…' }],
+      st.filtro, (v) => { st.filtro = v; volver('filtro'); });
+      return;
+    }
+    if (a === 'mdep') {
+      const del = st.eventos.filter((e) => e.inicio && (st.busqueda || !st.dia || agenda.claveDia(e.inicio) === st.dia));
+      const cuenta = new Map();
+      for (const e of del) if (e.deporte) cuenta.set(e.deporte, (cuenta.get(e.deporte) || 0) + 1);
+      const ops = [...cuenta].sort((x, y) => y[1] - x[1]).map(([d, k]) => ({ v: d, l: d, n: k, ico: iconoDeporte(d) }));
+      menuInicio('Deporte', [{ v: '', l: 'Todos los deportes', n: del.length }, ...ops], st.deporte || '', (v) => { st.deporte = v || null; volver('dep'); }, { cols: true });
+      return;
+    }
+    if (a === 'amas') {
+      menuInicio('Agenda', [{ v: 'refresh', l: 'Actualizar ahora' }, { v: 'fuente', l: 'Cambiar la fuente', d: `Ahora: ${agenda.fuente().label}` }], null, (v) => {
+        if (v === 'refresh') agenda.descargar(true);
+        if (v === 'fuente') {
+          const keys = Object.keys(agenda.FUENTES);
+          store.setSettings({ agendaFuente: keys[(keys.indexOf(store.settings.agendaFuente || 'deportes') + 1) % keys.length] });
+          agenda.descargar(true);
+          toast(`Fuente de la agenda: ${agenda.fuente().label}`, 'ok');
+        }
+        volver('mas');
+      });
+      return;
+    }
     if (a === 'abuscar') {
       if (st.busqueda) { st.busqueda = ''; renderHome(); return; }
       Promise.resolve(promptText('Buscar evento', '', { placeholder: 'Equipo, competición, deporte o canal', ok: 'Buscar' }))

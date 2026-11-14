@@ -855,11 +855,17 @@ html:not(.webpc) * { scrollbar-width: none; }
 .vpn-pais select:focus { outline: 3px solid var(--focus); }
 html.movil .vpn-ops { grid-template-columns: 1fr; }
 
-/* Agenda dentro de Inicio */
+/* Agenda dentro de Inicio: una fila de selectores que abren su menú */
 .agenda-inicio { margin-top: 1.6rem; }
-.agenda-inicio .filters { margin-top: .55rem; }
-.agenda-inicio .filters.dias .chip { font-weight: 600; }
-.agenda-inicio .filters.deportes .chip { display: inline-flex; align-items: center; gap: .35rem; }
-.agenda-inicio .ag-filas { margin-top: .8rem; }
-html.movil .agenda-inicio .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -.85rem; padding-right: .85rem; }
-html.movil .agenda-inicio .filters::-webkit-scrollbar { display: none; }
+.selags { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .6rem; }
+.selag { display: inline-flex; align-items: center; gap: .5rem; padding: .55rem 1.1rem; border: 0; border-radius: 99px; background: var(--panel); color: var(--text); font: inherit; font-size: 1rem; cursor: pointer; white-space: nowrap; }
+.selag i { font-style: normal; color: var(--muted); font-size: .8rem; }
+.selag.on { background: var(--text); color: var(--bg); }
+.selag.on i { color: var(--bg); }
+.selag:focus, .selag:hover { outline: 3px solid var(--focus); outline-offset: 2px; }
+.selag .dico { width: 1.1rem; height: 1.1rem; }
+.mtxt { display: inline-flex; align-items: center; gap: .5rem; }
+.mtxt .dico { width: 1.2rem; height: 1.2rem; }
+.agenda-inicio .ag-filas { margin-top: .9rem; }
+html.movil .selags { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -.85rem; padding-right: .85rem; }
+html.movil .selags::-webkit-scrollbar { display: none; }
