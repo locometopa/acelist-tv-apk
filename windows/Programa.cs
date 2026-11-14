@@ -594,6 +594,8 @@ sealed class Ventana : Form
     }
 
     // ---------- ficha del canal (derecha de Canales y Favoritos) ----------
+    readonly List<Rectangle> sitiosEnlaces = new();   // dónde se ha pintado cada enlace en la ficha (para elegirlo con el ratón)
+    int enlaceEncima = -1;
     Canal? CanalFicha() => lista.SelectedItem as Canal ?? (lista.SelectedItem is Evento e ? CanalDe(e) : null) ?? actual;
 
     void MontarFicha()
@@ -613,6 +615,30 @@ sealed class Ventana : Form
         fichaTele.Click += (_, _) => { if (CanalFicha() is { } c) _ = EnviarATele(c); };
         ficha.Resize += (_, _) => PonerBotonesFicha();
         ficha.Paint += PintarFicha;
+        // Clic en un enlace de la ficha: se pone ese enlace
+        ficha.MouseMove += (_, e) =>
+        {
+            int i = sitiosEnlaces.FindIndex(r => r.Contains(e.Location));
+            if (i == enlaceEncima) return;
+            enlaceEncima = i;
+            ficha.Cursor = i >= 0 ? Cursors.Hand : Cursors.Default;
+            ayudas.SetToolTip(ficha, i >= 0 ? $"Ver el enlace {i + 1}" : "");
+            ficha.Invalidate();
+        };
+        ficha.MouseLeave += (_, _) => { if (enlaceEncima >= 0) { enlaceEncima = -1; ficha.Cursor = Cursors.Default; ficha.Invalidate(); } };
+        ficha.MouseClick += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            int i = sitiosEnlaces.FindIndex(r => r.Contains(e.Location));
+            if (i < 0 || CanalFicha() is not { } c || i >= c.Enlaces.Count) return;
+            if (actual != null && actual.Clave == c.Clave)
+            {
+                enlace = i; intentos = 0; enlacesProbados = 0; manifest = false; viaAac = false; pistasProbadas = 0;
+                Abrir();
+            }
+            else Poner(c, i);
+            ficha.Invalidate();
+        };
         SetStyleDoble(ficha);
     }
 
@@ -645,6 +671,7 @@ sealed class Ventana : Form
         const TextFormatFlags varias = TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
         int W = ficha.ClientSize.Width - 36, x = 18, y = 20;
         var c = CanalFicha();
+        sitiosEnlaces.Clear();
         if (c == null)
         {
             TextRenderer.DrawText(g, "Elige un canal de la lista para ver aquí su estado, qué echan y sus enlaces.", Tema.Normal, new Rectangle(x, y, W, 80), Tenue, varias);
@@ -691,17 +718,26 @@ sealed class Ventana : Form
         int tope = ficha.ClientSize.Height - 18 - 38 - 92 - 16;
         if (c.Enlaces.Count > 0 && y + 40 < tope)
         {
-            TextRenderer.DrawText(g, c.Enlaces.Count == 1 ? "ENLACE" : $"ENLACES ({c.Enlaces.Count})", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
+            TextRenderer.DrawText(g, c.Enlaces.Count == 1 ? "ENLACE" : $"ENLACES ({c.Enlaces.Count}) · clic para cambiar", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
             y += 22;
-            for (int i = 0; i < c.Enlaces.Count && y + 22 < tope; i++)
+            for (int i = 0; i < c.Enlaces.Count && y + 26 < tope; i++)
             {
                 var en = c.Enlaces[i];
                 bool puesto = actual != null && actual.Clave == c.Clave && enlace == i;
+                var fila = new Rectangle(x - 8, y - 3, W + 16, 26);
+                sitiosEnlaces.Add(fila);
+                if (i == enlaceEncima || puesto)
+                {
+                    using var f = Tema.Redondeado(fila, 6);
+                    using var b = new SolidBrush(i == enlaceEncima ? Panel2 : Panel1);
+                    g.FillPath(b, f);
+                }
                 Color pe = en.Url != null || en.Estado == "alive" ? Color.FromArgb(90, 200, 120) : en.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : en.Estado.Length == 0 ? Color.FromArgb(150, 150, 150) : Color.FromArgb(229, 72, 77);
                 using (var p = new SolidBrush(pe)) g.FillEllipse(p, x, y + 6, 8, 8);
                 string txt = $"{(puesto ? "▶ " : "")}Enlace {i + 1}{(en.Url != null ? " · TV" : en.Peers > 0 ? $" · {en.Peers} peers" : en.Estado == "no_peers" ? " · sin peers" : "")}";
                 TextRenderer.DrawText(g, txt, Tema.Normal, new Rectangle(x + 16, y, W - 16, 20), puesto ? Acento : Texto, corta);
-                y += 24;
+                if (i == enlaceEncima && !puesto) TextRenderer.DrawText(g, "▶ Ver", Tema.Pequena, new Rectangle(x, y, W, 20), Acento, corta | TextFormatFlags.Right);
+                y += 28;
             }
         }
     }
@@ -1883,12 +1919,12 @@ sealed class Ventana : Form
         }
     }
 
-    void Poner(Canal c)
+    void Poner(Canal c, int cual = 0)
     {
         viaAac = false; pistasProbadas = 0;
         if (IsHandleCreated) BeginInvoke(new Action(() => { ficha.Invalidate(); PonerBotonesFicha(); }));
         actual = c;
-        enlace = 0;
+        enlace = Math.Clamp(cual, 0, Math.Max(0, c.Enlaces.Count - 1));
         intentos = 0;
         enlacesProbados = 0;
         colchon = ajustes.Colchon;
