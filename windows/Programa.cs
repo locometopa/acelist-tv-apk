@@ -146,7 +146,12 @@ sealed class Ventana : Form
     readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
     readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 38, ColumnCount = 2, RowCount = 1 };
     readonly Button pestCanales, pestAgenda;
-    readonly ComboBox categorias = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+    readonly Button bLista, bAmpliar, bAudio;
+    bool ampliado;        // el vídeo ocupa toda la ventana (sin lista ni ficha)
+    bool viaAac;          // el sonido de este canal pasa por el servidor (convertido a AAC) porque aquí no se oía
+    int pistasProbadas;
+    DateTime revisarAudioEn = DateTime.MaxValue;
+    readonly ComboBox categorias = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Standard };
     readonly CheckBox filtro = new() { Dock = DockStyle.Top, Height = 30, AutoSize = false };
     readonly ListBox lista = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 46, BorderStyle = BorderStyle.None, IntegralHeight = false };
     readonly Label pie = new() { Dock = DockStyle.Right, Width = 440, TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true, Font = Tema.Pequena };
@@ -157,7 +162,7 @@ sealed class Ventana : Form
     readonly Panel barra = new() { Dock = DockStyle.Bottom, Height = 46, BackColor = Panel1, Padding = new Padding(8, 6, 8, 6) };
     readonly Label estado = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Text = "Elige un partido o un canal" };
     readonly TrackBar volumen = new() { Dock = DockStyle.Right, Width = 130, Minimum = 0, Maximum = 100, TickStyle = TickStyle.None, AutoSize = false, Height = 30 };
-    readonly FlowLayoutPanel botonesBarra = new() { Dock = DockStyle.Right, Width = 350, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+    readonly FlowLayoutPanel botonesBarra = new() { Dock = DockStyle.Right, Width = 600, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
 
     enum Seccion { Hoy, Agenda, Canales, Favoritos }
     VistaAgenda vistaAgenda = null!;
@@ -167,8 +172,9 @@ sealed class Ventana : Form
     void ParaBuscar() { if (ajustes.ListaOculta) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } }
     void ColocarLateral()
     {
-        lateral.Visible = EsVideo && !completa && !soloVideo && (!ajustes.ListaOculta || listaForzada);
-        ficha.Visible = EsVideo && !completa && cuerpo.ClientSize.Width >= (lateral.Visible ? 1000 : 700);
+        lateral.Visible = EsVideo && !completa && !ampliado && !soloVideo && (!ajustes.ListaOculta || listaForzada);
+        ficha.Visible = EsVideo && !completa && !ampliado && cuerpo.ClientSize.Width >= (lateral.Visible ? 1000 : 700);
+        if (bLista != null) { bLista.Text = lateral.Visible ? "Ocultar lista" : "Ver lista"; bAmpliar.Text = ampliado ? "Reducir" : "Ampliar"; }
     }
     sealed record Par(Evento Ev, Canal Canal);
     Seccion seccion = Seccion.Hoy;
@@ -248,12 +254,38 @@ sealed class Ventana : Form
 
         // ----- lista de canales y agenda (secciones Canales y Favoritos) -----
         foreach (var c in new Control[] { categorias, filtro, lista }) { c.BackColor = Principal; c.ForeColor = Texto; }
+        // «Solo los que funcionan» como interruptor oscuro (la casilla de Windows sale blanca)
+        filtro.Appearance = Appearance.Button;
+        filtro.FlatStyle = FlatStyle.Flat;
+        filtro.FlatAppearance.BorderSize = 0;
+        filtro.FlatAppearance.CheckedBackColor = Panel2;
+        filtro.FlatAppearance.MouseOverBackColor = Panel1;
+        filtro.TextAlign = ContentAlignment.MiddleLeft;
+        filtro.Padding = new Padding(4, 0, 0, 0);
+        filtro.Paint += (_, e) =>
+        {
+            var r = new Rectangle(filtro.Width - 46, (filtro.Height - 18) / 2, 36, 18);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var f = Tema.Redondeado(r, 9)) using (var b = new SolidBrush(filtro.Checked ? Acento : Tema.Linea)) e.Graphics.FillPath(b, f);
+            using var bola = new SolidBrush(filtro.Checked ? Fondo : Tenue);
+            e.Graphics.FillEllipse(bola, filtro.Checked ? r.Right - 16 : r.Left + 2, r.Top + 2, 14, 14);
+        };
+        // Categorías: lista desplegable pintada en oscuro
+        categorias.DrawMode = DrawMode.OwnerDrawFixed;
+        categorias.ItemHeight = 22;
+        categorias.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0) return;
+            bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
+            using (var b = new SolidBrush(sel ? Panel2 : Panel1)) e.Graphics.FillRectangle(b, e.Bounds);
+            TextRenderer.DrawText(e.Graphics, categorias.Items[e.Index]?.ToString() ?? "", categorias.Font, new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 8, e.Bounds.Height), Texto, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
         categorias.BackColor = Panel1;
         pie.ForeColor = Tenue;
         pestanas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         pestanas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         pestCanales = Boton("Canales", (_, _) => PonerPestana(false), 100);
-        pestAgenda = Boton("Agenda eventos", (_, _) => PonerPestana(true), 100, "Los eventos de hoy y mañana (tecla A)");
+        pestAgenda = Boton("◀  Ocultar lista", (_, _) => PonerLista(false), 100, "Esconder la lista para ver el vídeo más grande (tecla L)");
         pestCanales.Dock = DockStyle.Fill; pestAgenda.Dock = DockStyle.Fill;
         pestanas.Controls.Add(pestCanales, 0, 0);
         pestanas.Controls.Add(pestAgenda, 1, 0);
@@ -316,9 +348,15 @@ sealed class Ventana : Form
         volumen.Value = Math.Clamp(ajustes.Volumen, 0, 100);
         botonesBarra.Controls.Add(Boton("▲", (_, _) => Zapear(-1), 38, "Canal anterior (↑ en pantalla completa)"));
         botonesBarra.Controls.Add(Boton("▼", (_, _) => Zapear(1), 38, "Canal siguiente (↓ en pantalla completa)"));
+        bLista = Boton("Ocultar lista", (_, _) => AlternarLista(), 104, "Ocultar o mostrar la lista de canales (tecla L)");
+        bAmpliar = Boton("Ampliar", (_, _) => Ampliar(!ampliado), 76, "El vídeo ocupa toda la ventana, sin lista ni ficha (tecla Z)");
+        bAudio = Boton("Audio", (_, _) => MenuAudio(), 64, "Pistas de sonido y arreglo si no se oye");
+        botonesBarra.Controls.Add(bLista);
+        botonesBarra.Controls.Add(bAmpliar);
+        botonesBarra.Controls.Add(bAudio);
         botonesBarra.Controls.Add(Boton("Otro enlace", (_, _) => OtroEnlace(), 96, "Probar el siguiente enlace de este canal (E)"));
         botonesBarra.Controls.Add(Boton("Parar", (_, _) => Parar(), 60));
-        botonesBarra.Controls.Add(Boton("Completa", (_, _) => PantallaCompleta(!completa), 80, "Pantalla completa (F o doble clic)"));
+        botonesBarra.Controls.Add(Boton("Pantalla completa", (_, _) => PantallaCompleta(!completa), 128, "Pantalla completa (F o doble clic)"));
         estado.Cursor = Cursors.Hand;
         estado.Click += (_, _) => { if (!EsVideo && actual != null) IrAlVideo(); };
         barra.Controls.Add(estado);
@@ -410,6 +448,7 @@ sealed class Ventana : Form
         {
             sonandoDesde = DateTime.Now;
             ultimoAvance = DateTime.Now;
+            revisarAudioEn = DateTime.Now.AddSeconds(6);
             reproductor.Volume = volumen.Value;
             Estado(TextoSonando());
         });
@@ -478,10 +517,10 @@ sealed class Ventana : Form
         enAgenda = deAgenda;
         pestCanales.BackColor = deAgenda ? Panel2 : Acento;
         pestCanales.ForeColor = deAgenda ? Texto : Fondo;
-        pestAgenda.BackColor = deAgenda ? Acento : Panel2;
-        pestAgenda.ForeColor = deAgenda ? Fondo : Texto;
+        pestAgenda.BackColor = Panel2;
+        pestAgenda.ForeColor = Texto;
         categorias.Visible = !deAgenda;
-        filtro.Text = deAgenda ? "Solo los que puedo ver con mis canales" : "Solo los que funcionan";
+        filtro.Text = "Solo los que funcionan";
         filtro.Checked = deAgenda ? ajustes.SoloConCanal : ajustes.SoloVivos;
         buscar.PlaceholderText = deAgenda ? "Buscar partido o equipo…  (Ctrl+B)" : "Buscar canal…  (Ctrl+B)";
         cambiandoPestana = false;
@@ -1832,6 +1871,7 @@ sealed class Ventana : Form
 
     void Poner(Canal c)
     {
+        viaAac = false; pistasProbadas = 0;
         if (IsHandleCreated) BeginInvoke(new Action(() => { ficha.Invalidate(); PonerBotonesFicha(); }));
         actual = c;
         enlace = 0;
@@ -1862,6 +1902,8 @@ sealed class Ventana : Form
         haAvanzado = false;
         enParon = false;
         lista.Invalidate();
+        revisarAudioEn = DateTime.MaxValue;
+        if (viaAac && e.Url == null) { _ = AbrirAac(e); return; }
         try
         {
             using var media = new Media(vlc, new Uri(UrlDe(e)));
@@ -1944,6 +1986,7 @@ sealed class Ventana : Form
     void Vigilar()
     {
         if (actual == null || reintento.Enabled) return;
+        if (DateTime.Now >= revisarAudioEn) { revisarAudioEn = DateTime.MaxValue; RevisarAudio(); }
         if (sonandoDesde == DateTime.MinValue)
         {
             if (abiertoEn != DateTime.MinValue && (DateTime.Now - abiertoEn).TotalSeconds > 45) Corte("No arranca");
@@ -1966,6 +2009,7 @@ sealed class Ventana : Form
         if (actual == null) return;
         if (actual.Enlaces.Count < 2) { Estado($"{actual.Titulo} solo tiene un enlace"); return; }
         enlace = (enlace + 1) % actual.Enlaces.Count;
+        viaAac = false; pistasProbadas = 0;
         intentos = 0;
         enlacesProbados = 0;
         manifest = false;
@@ -2005,8 +2049,94 @@ sealed class Ventana : Form
 
     // Esconde o enseña la lista de canales de la izquierda (se recuerda para la próxima vez)
     void AlternarLista() { if (EsVideo) PonerLista(!lateral.Visible); }
+    void Ampliar(bool poner)
+    {
+        if (poner && !EsVideo) { if (actual == null) return; IrAlVideo(); }
+        ampliado = poner;
+        ColocarLateral();
+        ActualizarRiel();
+    }
+
+    // ---------- sonido ----------
+    void MenuAudio()
+    {
+        var m = new ContextMenuStrip { Renderer = new ToolStripProfessionalRenderer(new ColoresOscuros()), ForeColor = Texto };
+        try
+        {
+            var pistas = reproductor.AudioTrackDescription.Where(p => p.Id >= 0).ToList();
+            int act = reproductor.AudioTrack;
+            if (pistas.Count == 0) m.Items.Add(new ToolStripMenuItem("Este canal no trae pistas de sonido") { Enabled = false, ForeColor = Tenue });
+            foreach (var p in pistas)
+            {
+                int id = p.Id;
+                var it = new ToolStripMenuItem(string.IsNullOrWhiteSpace(p.Name) ? $"Pista {id}" : p.Name) { Checked = id == act, ForeColor = Texto };
+                it.Click += (_, _) => { reproductor.SetAudioTrack(id); Estado($"Sonido: {it.Text}"); };
+                m.Items.Add(it);
+            }
+        }
+        catch { /* sin reproducción */ }
+        m.Items.Add(new ToolStripSeparator());
+        var aac = new ToolStripMenuItem(viaAac ? "✓ El sonido pasa por el servidor" : "No se oye: pasar el sonido por el servidor") { ForeColor = Texto, Enabled = actual != null && actual.Enlaces.Count > enlace && actual.Enlaces[enlace].Url == null };
+        aac.Click += (_, _) => { viaAac = !viaAac; Abrir(); };
+        m.Items.Add(aac);
+        m.Closed += (_, _) => BeginInvoke(new Action(m.Dispose));
+        m.Show(bAudio, new Point(0, -m.PreferredSize.Height));
+    }
+
+    // A los pocos segundos de sonar: si hay imagen pero ningún sonido decodificado, se prueba otra pista
+    // y, si no hay más, se pasa el canal por el servidor, que convierte el sonido a AAC (AC3, E-AC3, LATM raros…)
+    void RevisarAudio()
+    {
+        try
+        {
+            if (actual == null) return;
+            var pistas = reproductor.AudioTrackDescription.Where(p => p.Id >= 0).ToList();
+            if (pistas.Count == 0) return;
+            if (reproductor.AudioTrack < 0) { reproductor.SetAudioTrack(pistas[0].Id); revisarAudioEn = DateTime.Now.AddSeconds(5); return; }
+            var m = reproductor.Media;
+            if (m == null) return;
+            var st = m.Statistics;
+            if (st.DecodedVideo < 20 || st.DecodedAudio > 0) return;
+            if (pistasProbadas + 1 < pistas.Count)
+            {
+                pistasProbadas++;
+                int i = pistas.FindIndex(p => p.Id == reproductor.AudioTrack);
+                var sig = pistas[(i + 1) % pistas.Count];
+                reproductor.SetAudioTrack(sig.Id);
+                Estado($"Sin sonido: probando la pista «{sig.Name}»…");
+                revisarAudioEn = DateTime.Now.AddSeconds(5);
+                return;
+            }
+            if (!viaAac && actual.Enlaces[enlace].Url == null)
+            {
+                viaAac = true;
+                Estado($"{actual.Titulo} no se oye aquí: pasando el sonido por el servidor…");
+                Abrir();
+            }
+        }
+        catch { /* sin estadísticas: no se toca nada */ }
+    }
+
+    async Task AbrirAac(Enlace e)
+    {
+        try
+        {
+            var r = JsonNode.Parse(await httpLargo.GetStringAsync($"http://{Srv}:8096/aac/abrir?id={e.Id}&kind={(e.Tipo == "infohash" ? "infohash" : "content_id")}"));
+            string? l = r?["lista"]?.ToString();
+            if (string.IsNullOrEmpty(l)) throw new Exception(r?["error"]?.ToString() ?? "el servidor no responde");
+            if (actual == null || !viaAac) return;
+            using var media = new Media(vlc, new Uri($"http://{Srv}:8096{l}"));
+            media.AddOption($":network-caching={colchon}");
+            media.AddOption(":http-reconnect");
+            reproductor.Play(media);
+            reproductor.Volume = volumen.Value;
+        }
+        catch (Exception ex) { viaAac = false; Estado("No se ha podido pasar el sonido por el servidor: " + ex.Message); }
+    }
+
     void PonerLista(bool enseñar)
     {
+        ampliado = false;
         ajustes.ListaOculta = !enseñar;
         ajustes.Guardar();
         soloVideo = false;
@@ -2076,7 +2206,8 @@ sealed class Ventana : Form
                 return true;
             case Keys.H: if (!completa) { Ir(seccion == Seccion.Hoy ? Seccion.Canales : Seccion.Hoy); return true; } break;
             case Keys.E: OtroEnlace(); return true;
-            case Keys.A: if (!completa) { if (!EsVideo) Ir(Seccion.Canales); PonerPestana(!enAgenda); return true; } break;
+            case Keys.A: if (!completa) { Ir(Seccion.Hoy); return true; } break;
+                case Keys.Z: if (!completa && EsVideo) { Ampliar(!ampliado); return true; } break;
             case Keys.M: reproductor.Mute = !reproductor.Mute; Estado(reproductor.Mute ? "Silenciado" : TextoSonando()); return true;
             case Keys.Space: if (actual != null) Parar(); else if (EsVideo) ReproducirSeleccionado(); return true;
             case Keys.Up: if (completa) { Zapear(-1); return true; } break;

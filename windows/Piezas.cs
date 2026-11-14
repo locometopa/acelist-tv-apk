@@ -92,6 +92,11 @@ static class Nativo
     // Barras de desplazamiento oscuras en listas, cajas de texto y paneles con scroll (no se ven barras blancas)
     public static void Oscurecer(Control c)
     {
+        if (c is ComboBox)
+        {
+            void Combo() { try { SetWindowTheme(c.Handle, "DarkMode_CFD", null); } catch { /* sin uxtheme */ } }
+            if (c.IsHandleCreated) Combo(); else c.HandleCreated += (_, _) => Combo();
+        }
         void Poner() { try { SetWindowTheme(c.Handle, "DarkMode_Explorer", null); } catch { /* sin uxtheme */ } }
         if (c is ListBox or TextBox or ScrollableControl or ListView or TreeView)
         {
@@ -474,7 +479,8 @@ sealed class VistaAgenda : Panel
             {
                 dia = ev.Inicio.Date;
                 string nombre = dia == DateTime.Today ? "Hoy" : dia == DateTime.Today.AddDays(1) ? "Mañana" : dia == DateTime.Today.AddDays(-1) ? "Ayer" : "";
-                string largo = System.Globalization.CultureInfo.GetCultureInfo("es-ES").TextInfo.ToTitleCase(dia.ToString("dddd d 'de' MMMM 'de' yyyy", System.Globalization.CultureInfo.GetCultureInfo("es-ES")));
+                string largo = dia.ToString("dddd, d 'de' MMMM", Es);
+                largo = char.ToUpper(largo[0]) + largo[1..];
                 lista.Items.Add(new Cab(nombre.Length > 0 ? $"{nombre} · {largo}" : largo));
             }
             if (primeroAhora < 0 && (ev.Vivo || ev.Inicio > ahora)) primeroAhora = lista.Items.Count;
@@ -529,7 +535,10 @@ sealed class VistaAgenda : Panel
         {
             using var p = new SolidBrush(canal.Estado == "alive" || canal.EsTv ? Color.FromArgb(90, 200, 120) : canal.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : Color.FromArgb(150, 150, 150));
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.FillEllipse(p, rDer.Left, fila.Top + fila.Height / 2 - 5, 10, 10);
+            // El punto va pegado al nombre del canal (que se alinea a la derecha)
+            var rTxt = new Rectangle(rDer.Left + 16, rDer.Top, rDer.Width - 16 - 58, rDer.Height);
+            int anchoTxt = Math.Min(rTxt.Width, TextRenderer.MeasureText(g, ev.Posible ? "¿" + donde + "?" : donde, Tema.Normal, new Size(rTxt.Width, rTxt.Height), corta).Width);
+            g.FillEllipse(p, rTxt.Right - anchoTxt - 16, fila.Top + fila.Height / 2 - 5, 10, 10);
             var play = new Rectangle(fila.Right - 54, fila.Top + fila.Height / 2 - 16, 32, 32);
             using (var b = new SolidBrush(ev.Vivo ? Tema.Acento : Tema.Panel2)) g.FillEllipse(b, play);
             TextRenderer.DrawText(g, "", Tema.IconosPeq, play, ev.Vivo ? Tema.Fondo : Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);

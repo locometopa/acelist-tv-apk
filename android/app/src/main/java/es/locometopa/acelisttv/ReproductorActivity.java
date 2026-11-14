@@ -131,6 +131,10 @@ public class ReproductorActivity extends Activity {
     private int arreglosImagen = 0;
     private long primerArreglo = 0;
     private boolean avisoVideo = false;
+    private boolean avisoAudio = false;
+    // Canales cuyo sonido no entiende la tele (AC3, E-AC3…): se piden al servidor de casa, que lo convierte a AAC
+    private java.util.Set<String> soloAac = new java.util.HashSet<>();
+    private final java.util.Set<String> aacFallido = new java.util.HashSet<>();   // la conversión no fue posible (en esta sesión)
     private final Runnable vigiaImagen = new Runnable() {
         @Override public void run() { revisarImagen(); ui.postDelayed(this, 2000); }
     };
@@ -166,6 +170,7 @@ public class ReproductorActivity extends Activity {
         formatoElegido = formato;
         urlBloqueo = getIntent().getStringExtra(EXTRA_BLOQUEO);
         soloHls = new java.util.HashSet<>(getSharedPreferences(PREFS, MODE_PRIVATE).getStringSet("soloHls", new java.util.HashSet<>()));
+        soloAac = new java.util.HashSet<>(getSharedPreferences(PREFS, MODE_PRIVATE).getStringSet("soloAac", new java.util.HashSet<>()));
         if (ids == null || ids.isEmpty()) { finish(); return; }
         if (titulos == null) titulos = new ArrayList<>(ids);
         urls = getIntent().getStringArrayListExtra(EXTRA_URLS);
@@ -207,6 +212,18 @@ public class ReproductorActivity extends Activity {
                 }
             }
             @Override public void onTracksChanged(Tracks tracks) {
+                // Sonido que la tele no sabe reproducir: se ve pero no se oye
+                boolean hayAudio = false, audioOk = false;
+                String mimeAudio = null;
+                for (Tracks.Group g : tracks.getGroups()) {
+                    if (g.getType() != C.TRACK_TYPE_AUDIO) continue;
+                    hayAudio = true;
+                    for (int i = 0; i < g.length; i++) {
+                        if (g.isTrackSupported(i, true)) audioOk = true;
+                        if (mimeAudio == null) mimeAudio = g.getTrackFormat(i).sampleMimeType;
+                    }
+                }
+                if (hayAudio && !audioOk) audioNoCompatible(mimeAudio);
                 // Vídeo que la tele no sabe decodificar (MPEG-2, HEVC 10 bits…): se oye pero la imagen no sale
                 for (Tracks.Group g : tracks.getGroups()) {
                     if (g.getType() != C.TRACK_TYPE_VIDEO) continue;
@@ -312,6 +329,35 @@ public class ReproductorActivity extends Activity {
         player.stop();
         player.prepare();
         player.setPlayWhenReady(true);
+    }
+
+    // Dirección del servidor de casa (el mismo equipo que el motor, puerto 8096); null si el motor es el de la propia tele
+    private String servidorCasa() {
+        try {
+            URL u = new URL(motor);
+            String h = u.getHost();
+            if (h == null || h.isEmpty() || "127.0.0.1".equals(h) || "localhost".equals(h)) return null;
+            return "http://" + h + ":8096";
+        } catch (Exception e) { return null; }
+    }
+
+    private void audioNoCompatible(String mime) {
+        if (avisoAudio || fuentes.isEmpty()) return;
+        avisoAudio = true;
+        String id = fuentes.get(fuente)[0];
+        String directa = fuentes.get(fuente)[1];
+        String tipo = mime == null ? "desconocido" : mime.replace("audio/", "").replace("ac3", "AC3").replace("eac3", "E-AC3").toUpperCase(java.util.Locale.ROOT);
+        if (servidorCasa() != null && (directa == null || directa.isEmpty()) && !soloAac.contains(id) && !aacFallido.contains(id)) {
+            soloAac.add(id);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("soloAac", new java.util.HashSet<>(soloAac)).apply();
+            reintentos = 0;
+            cargar(false);
+            txtEstado.setText("La tele no reproduce el sonido de este canal (" + tipo + "): pasándolo por el servidor…");
+            mostrarPanel(0);
+        } else {
+            txtEstado.setText("Se ve, pero esta tele no reproduce el sonido de este canal (" + tipo + "). Prueba otro enlace o VLC.");
+            mostrarPanel(0);
+        }
     }
 
     private void videoNoCompatible(String mime) {
@@ -557,6 +603,7 @@ public class ReproductorActivity extends Activity {
         yaSonando = false;
         apuntado = false;
         avisoVideo = false;
+        avisoAudio = false;
         ultimoRender = -1; ultimaPos = -1; congelado = 0; ultimoDescarte = -1; lentos = 0;
         maxPeers = -1;
         ui.removeCallbacks(vigilante);
@@ -579,6 +626,45 @@ public class ReproductorActivity extends Activity {
             player.setPlayWhenReady(true);
             txtEstado.setText("Emisión en abierto");
             ui.postDelayed(vigilante, 30000);
+            return;
+        }
+        final String casa = servidorCasa();
+        if (casa != null && soloAac.contains(id)) {
+            // Sonido convertido a AAC por el servidor de casa (imagen tal cual)
+            red.execute(() -> {
+                if (anteriorCmd != null) parar(anteriorCmd);
+                String[] s = null; String err = null;
+                try {
+                    JSONObject r = pedir(casa + "/aac/abrir?id=" + id, 60000);
+                    if (r.has("lista")) s = new String[] { casa + r.getString("lista"), rebase(r.optString("statUrl", "")), rebase(r.optString("commandUrl", "")) };
+                    else err = r.optString("error", "El servidor no puede convertir el sonido");
+                } catch (Exception e) { err = "El servidor de casa no responde"; }
+                final String[] fs = s; final String fe = err;
+                ui.post(() -> {
+                    if (g != generacion) return;
+                    if (fs == null) {
+                        // Sin conversión: se vuelve al modo normal (se ve, aunque sin sonido)
+                        soloAac.remove(id);
+                        aacFallido.add(id);
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("soloAac", new java.util.HashSet<>(soloAac)).apply();
+                        avisoAudio = true;
+                        txtEstado.setText(fe + ". Se abre sin convertir el sonido.");
+                        cargar(false);
+                        return;
+                    }
+                    statUrl = fs[1].isEmpty() ? null : fs[1];
+                    commandUrl = fs[2].isEmpty() ? null : fs[2];
+                    MediaItem.Builder mi = new MediaItem.Builder().setUri(Uri.parse(fs[0]))
+                        .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+                        .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(12000).build());
+                    player.setMediaItem(mi.build());
+                    player.prepare();
+                    player.setPlayWhenReady(true);
+                    txtEstado.setText("Sonido convertido por el servidor…");
+                    if (statUrl != null) ui.postDelayed(sondeo, 2000);
+                    ui.postDelayed(vigilante, 60000);
+                });
+            });
             return;
         }
         red.execute(() -> {
