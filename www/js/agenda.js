@@ -652,7 +652,8 @@ export function crearAgenda(app) {
       ${(ev.gratis || []).length ? `<div class="free-box"><b>Gratis y en abierto:</b> ${ev.gratis.map((n) => esc(n)).join(' · ')}</div>` : ''}
       <div class="vmenu">
         ${mios.length ? `<button class="mbtn primary" data-mejor data-autofocus><span>▶ Ver en el mejor canal</span><b>${esc(mios[0].c.title)}</b></button>
-          <button class="mbtn" data-comprobar><span>Comprobar estos ${mios.length} canales</span><b>⟳</b></button>` : ''}
+          <button class="mbtn" data-comprobar><span>Comprobar estos ${mios.length} canales</span><b>⟳</b></button>
+          ${store.settings.servidorCasa && ev.inicio + DURACION_MS > Date.now() ? `<button class="mbtn" data-grabar><span>⏺ ${ev.inicio > Date.now() ? 'Programar la grabación' : 'Grabar desde ahora'}</span><b>en el servidor</b></button>` : ''}` : ''}
         ${yt ? `<button class="mbtn${mios.length ? '' : ' primary'}" data-yt><span>▶ Ver en YouTube</span><b>${yt.directo ? 'enlace directo' : 'búsqueda del directo'}</b></button>` : ''}
         ${(ev.ace || []).length ? `<h3>Enlaces directos de la agenda</h3>${ev.ace.map((a) => `<div class="mrow"><button class="mbtn${mios.length || yt ? '' : ' primary'}" data-ace="${esc(a.id)}" data-t="${esc(a.label)}"><span>▶ ${esc(a.label || 'Enlace Ace Stream')}</span><b>sin buscar en tus listas</b></button>
           <button class="mbtn small" data-acesave="${esc(a.id)}" data-t="${esc(a.label)}"><span>＋ Guardar en mis canales (lista «Agenda»)</span><b>${store.find(a.id) ? 'ya lo tienes' : ''}</b></button></div>`).join('')}` : ''}
@@ -667,6 +668,7 @@ export function crearAgenda(app) {
       const p = e.target.closest('[data-play]');
       if (p) { closeLayer(layer); app.openWith(store.settings.player, store.find(p.dataset.play), lista); return; }
       if (e.target.closest('[data-mejor]')) { closeLayer(layer); app.openWith(store.settings.player, lista[0], lista); return; }
+      if (e.target.closest('[data-grabar]')) { closeLayer(layer); app.grabarEvento(ev, lista); return; }
       if (e.target.closest('[data-comprobar]')) { closeLayer(layer); app.verifyMany(lista); toast('Comprobando los canales del evento…'); return; }
       const eqb = e.target.closest('[data-equipo]');
       if (eqb) { app.alternarEquipo(eqb.dataset.equipo); closeLayer(layer); abrirEvento(id); refreshView(); return; }

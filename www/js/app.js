@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.62.0';
+const VERSION = '0.63.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -4007,9 +4007,23 @@ function wire() {
   setInterval(() => { if (!document.hidden) { ui.ultimaBusqueda = Date.now(); buscarActualizacion(); } }, 6 * 3600e3);
 }
 
+// Graba un evento en el servidor de casa (empieza 3 minutos antes; dura lo normal de ese deporte)
+async function grabarEvento(ev, canales) {
+  if (!store.settings.servidorCasa) { toast('Para grabar hace falta el servidor de casa (Ajustes)', 'bad'); return false; }
+  const enlaces = canales.slice(0, 6).map((c) => (c.url ? { url: c.url } : { id: c.id }));
+  try {
+    const r = await fetch(urlCasa('/api/grabar'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titulo: ev.titulo, canal: canales[0]?.title || '', enlaces, inicio: ev.inicio, deporte: ev.deporte, de: nombreTele() }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) throw new Error(d.error || `el servidor responde ${r.status}`);
+    toast(d.estado === 'grabando' ? `Grabando «${ev.titulo}» en el servidor` : `Grabación programada: ${ev.titulo}`, 'ok');
+    return true;
+  } catch (e) { toast(`No se pudo grabar: ${e.message}`, 'bad'); return false; }
+}
+
 const agendaApp = {
   store, ui, $, esc, toast, openLayer, closeLayer, focusEl, statusOf, lastCheck, STATUS, peersTxt,
-  fetchText, urlCasa, openWith, abrirWeb, activarLista, verifyMany, tieneAviso, alternarAviso, promptText, equiposDe, siguiendo, alternarEquipo, esDeMiEquipo,
+  fetchText, urlCasa, openWith, abrirWeb, grabarEvento, activarLista, verifyMany, tieneAviso, alternarAviso, promptText, equiposDe, siguiendo, alternarEquipo, esDeMiEquipo,
 };
 const agenda = crearAgenda(agendaApp);
 const guia = crearGuia({ fetchText, onCambio: () => { if (ui.section === 'canales') render(); if (ui.section === 'guia') renderGuia(false); } });

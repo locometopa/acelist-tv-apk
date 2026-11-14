@@ -142,7 +142,7 @@ sealed class Ventana : Form
     readonly Panel cuerpo = new() { Dock = DockStyle.Fill, BackColor = Principal };
     readonly Panel inicio = new() { Dock = DockStyle.Fill, BackColor = Principal, AutoScroll = true, Visible = false };
     readonly Panel ficha = new() { Dock = DockStyle.Right, Width = 290, BackColor = Principal, Visible = false };
-    readonly Button fichaVer = new(), fichaFav = new(), fichaTele = new();
+    readonly Button fichaVer = new(), fichaFav = new(), fichaTele = new(), fichaGrabar = new();
     readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
     readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 38, ColumnCount = 2, RowCount = 1 };
     readonly Button pestCanales, pestAgenda;
@@ -598,7 +598,7 @@ sealed class Ventana : Form
 
     void MontarFicha()
     {
-        foreach (var b in new[] { fichaVer, fichaFav, fichaTele })
+        foreach (var b in new[] { fichaVer, fichaFav, fichaTele, fichaGrabar })
         {
             b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderSize = 0; b.Height = 38; b.TabStop = false; b.Cursor = Cursors.Hand;
             b.BackColor = Panel2; b.ForeColor = Texto; b.Font = Tema.Normal;
@@ -606,6 +606,8 @@ sealed class Ventana : Form
         }
         fichaVer.BackColor = Acento; fichaVer.ForeColor = Fondo; fichaVer.Font = Tema.Negrita; fichaVer.Text = "▶  Ver ahora";
         fichaTele.Text = "Enviar a la tele";
+        fichaGrabar.Text = "⏺  Grabar…";
+        fichaGrabar.Click += (_, _) => MenuGrabarCanal(fichaGrabar);
         fichaVer.Click += (_, _) => { if (CanalFicha() is { } c) Poner(c); };
         fichaFav.Click += async (_, _) => { if (CanalFicha() is { } c) { await CambiarFavorito(c); PonerBotonesFicha(); ficha.Invalidate(); } };
         fichaTele.Click += (_, _) => { if (CanalFicha() is { } c) _ = EnviarATele(c); };
@@ -622,9 +624,10 @@ sealed class Ventana : Form
         int W = ficha.ClientSize.Width - 36, y = ficha.ClientSize.Height - 18 - 38;
         fichaFav.SetBounds(18, y, (W - 8) / 2, 38);
         fichaTele.SetBounds(18 + (W - 8) / 2 + 8, y, (W - 8) / 2, 38);
-        fichaVer.SetBounds(18, y - 46, W, 38);
+        fichaGrabar.SetBounds(18, y - 46, W, 38);
+        fichaVer.SetBounds(18, y - 92, W, 38);
         var c = CanalFicha();
-        foreach (var b in new[] { fichaVer, fichaFav, fichaTele }) b.Visible = c != null;
+        foreach (var b in new[] { fichaVer, fichaFav, fichaTele, fichaGrabar }) b.Visible = c != null;
         if (c != null)
         {
             fichaFav.Text = c.Favorito ? "★  Favorito" : "☆  Favorito";
@@ -685,7 +688,7 @@ sealed class Ventana : Form
             y += 66;
         }
         // Enlaces
-        int tope = ficha.ClientSize.Height - 18 - 38 - 46 - 16;
+        int tope = ficha.ClientSize.Height - 18 - 38 - 92 - 16;
         if (c.Enlaces.Count > 0 && y + 40 < tope)
         {
             TextRenderer.DrawText(g, c.Enlaces.Count == 1 ? "ENLACE" : $"ENLACES ({c.Enlaces.Count})", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
@@ -1165,6 +1168,7 @@ sealed class Ventana : Form
             Accion("Elegir qué listas de canales están encendidas…", () => _ = ElegirListas()),
             Accion("Añadir una lista (archivo o enlace)…", () => _ = AñadirLista()),
             Accion("Actualizar canales y agenda ahora", () => _ = CargarCanales(true)),
+            Accion("Ver las grabaciones del servidor…", () => AbrirWeb($"http://{Srv}:8096/#grabaciones")),
             Titulo("Programa"), Nota($"HomeTV {VersionPropia.Major}.{VersionPropia.Minor}.{Math.Max(VersionPropia.Build, 0)}. Se actualiza solo cuando hay una versión nueva."),
         });
         var ok = new Button { Text = "Guardar", Left = 366, Top = 552, Width = 86, Height = 32, DialogResult = DialogResult.OK };
@@ -1761,7 +1765,7 @@ sealed class Ventana : Form
         string cuando = ev.Aplazado ? "Aplazado" : ev.Vivo ? "En directo ahora" : $"{dia} a las {ev.Inicio:HH:mm}";
         string donde = canal != null ? (ev.Posible ? $"Quizá en «{canal.Titulo}» (la agenda solo dice: {ev.Canales})" : $"Lo tienes en «{canal.Titulo}»") : (ev.Canales.Length > 0 ? $"No tienes canal para verlo. Lo dan en: {ev.Canales}" : "Sin canal anunciado");
         string? youtube = ev.Enlaces.FirstOrDefault(u => u.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || u.Contains("youtu.be", StringComparison.OrdinalIgnoreCase));
-        bool hayExtra = ev.Ace.Count > 0 || youtube != null || canal == null;
+        bool hayExtra = true;
         int filaBotones = hayExtra ? 240 : 196;
         using var f = new Form { Text = "Evento", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, ClientSize = new Size(460, filaBotones + 54), MinimizeBox = false, MaximizeBox = false, Font = Font, BackColor = Fondo, ForeColor = Texto };
         using var fTitulo = new Font(Font.FontFamily, 13f, FontStyle.Bold);
@@ -1804,6 +1808,7 @@ sealed class Ventana : Form
             botonYt.FlatAppearance.BorderSize = 0;
             botonYt.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(youtube) { UseShellExecute = true }); } catch (Exception e) { Estado("No se ha podido abrir YouTube: " + e.Message); } };
             f.Controls.Add(botonYt);
+            izquierda += 158;
         }
         if (canal == null)
         {
@@ -1841,6 +1846,15 @@ sealed class Ventana : Form
                 botonBus.Enabled = true;
             };
             f.Controls.Add(botonBus);
+        }
+        if (canal != null && !ev.Aplazado && ev.Inicio.AddHours(2) > DateTime.Now)
+        {
+            bool otraFila = izquierda + 190 > 444;
+            if (otraFila) { foreach (var b in new[] { ver, fav, cerrar }) b.Top += 40; f.ClientSize = new Size(f.ClientSize.Width, f.ClientSize.Height + 40); }
+            var botonGrab = new Button { Text = ev.Inicio > DateTime.Now ? "⏺ Programar grabación" : "⏺ Grabar desde ahora", Left = otraFila ? 16 : izquierda, Top = otraFila ? 236 : 196, Width = 190, Height = 34, FlatStyle = FlatStyle.Flat, BackColor = Panel2 };
+            botonGrab.FlatAppearance.BorderSize = 0;
+            botonGrab.Click += async (_, _) => { botonGrab.Enabled = false; if (await Grabar(ev.Titulo, canal, ev.Inicio, 0, ev.Deporte)) botonGrab.Text = "✓ Grabación pedida"; else botonGrab.Enabled = true; };
+            f.Controls.Add(botonGrab);
         }
         f.CancelButton = cerrar;
         Tema.Aplicar(f);
@@ -2055,6 +2069,51 @@ sealed class Ventana : Form
         ampliado = poner;
         ColocarLateral();
         ActualizarRiel();
+    }
+
+    // ---------- grabaciones (las hace el servidor, aunque este PC esté apagado) ----------
+    void AbrirWeb(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception e) { Estado("No se ha podido abrir el navegador: " + e.Message); }
+    }
+
+    async Task<bool> Grabar(string titulo, Canal canal, DateTime? inicio, int minutos, string deporte = "")
+    {
+        var enlaces = new JsonArray();
+        foreach (var e in canal.Enlaces.Take(6)) enlaces.Add(e.Url != null ? new JsonObject { ["url"] = e.Url } : new JsonObject { ["id"] = e.Id, ["tipo"] = e.Tipo });
+        var cuerpo = new JsonObject { ["titulo"] = titulo, ["canal"] = canal.Titulo, ["enlaces"] = enlaces, ["deporte"] = deporte, ["de"] = "Windows" };
+        if (inicio is { } i) cuerpo["inicio"] = new DateTimeOffset(i).ToUnixTimeMilliseconds();
+        if (minutos > 0) cuerpo["minutos"] = minutos;
+        try
+        {
+            using var c = new StringContent(cuerpo.ToJsonString(), Encoding.UTF8, "application/json");
+            using var r = await http.PostAsync($"http://{Srv}:8096/api/grabar", c);
+            var d = JsonNode.Parse(await r.Content.ReadAsStringAsync());
+            if (!r.IsSuccessStatusCode) throw new Exception(d?["error"]?.ToString() ?? $"el servidor ha respondido {(int)r.StatusCode}");
+            Estado(d?["estado"]?.ToString() == "grabando" ? $"⏺ Grabando «{titulo}» en el servidor" : $"⏺ Grabación programada: {titulo}");
+            return true;
+        }
+        catch (Exception e) { Estado("No se ha podido grabar: " + e.Message); MessageBox.Show(this, "No se ha podido grabar:\n\n" + e.Message, "HomeTV · Grabar", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+    }
+
+    void MenuGrabarCanal(Control donde)
+    {
+        var c = CanalFicha();
+        if (c == null) return;
+        var m = new ContextMenuStrip { Renderer = new ToolStripProfessionalRenderer(new ColoresOscuros()), ForeColor = Texto };
+        foreach (var (t, min) in new[] { ("Grabar 30 minutos", 30), ("Grabar 1 hora", 60), ("Grabar 2 horas", 120), ("Grabar 3 horas", 180) })
+        {
+            int mm = min;
+            var it = new ToolStripMenuItem(t) { ForeColor = Texto };
+            it.Click += async (_, _) => await Grabar(c.Ahora is { Length: > 0 } a ? $"{c.Titulo} - {a}" : c.Titulo, c, null, mm);
+            m.Items.Add(it);
+        }
+        m.Items.Add(new ToolStripSeparator());
+        var ver = new ToolStripMenuItem("Ver las grabaciones…") { ForeColor = Texto };
+        ver.Click += (_, _) => AbrirWeb($"http://{Srv}:8096/#grabaciones");
+        m.Items.Add(ver);
+        m.Closed += (_, _) => BeginInvoke(new Action(m.Dispose));
+        m.Show(donde, new Point(0, -m.PreferredSize.Height));
     }
 
     // ---------- sonido ----------
