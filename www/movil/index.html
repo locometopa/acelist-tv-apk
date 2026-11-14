@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a101c">
+  <meta name="color-scheme" content="dark">
+  <title>HomeTV · Administración</title>
+  <link rel="icon" href="/icono.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/movil.css">
+</head>
+<body>
+  <div class="marco">
+    <aside class="lado">
+      <div class="brand"><img src="/icono.svg" alt=""><span>Home<b>TV</b></span></div>
+      <nav class="tabs" aria-label="Secciones">
+        <button data-tab="canales" class="on">Canales</button>
+        <button data-tab="agenda">Agenda</button>
+        <button data-tab="anadir">Añadir</button>
+        <button data-tab="fuentes">Listas</button>
+        <button data-tab="categorias">Categorías</button>
+        <button data-tab="ajustes">Ajustes</button>
+        <button data-tab="copia">Copia</button>
+      </nav>
+      <div class="estado-caja" id="estadoCaja">
+        <div id="estado" class="estado">Conectando con la tele…</div>
+        <div id="estadoMas" class="estado-mas"></div>
+      </div>
+    </aside>
+
+    <main class="contenido">
+      <div id="avisoServidor" class="aviso-servidor" hidden>
+        <b>Esta tele usa el servidor de casa.</b> Los canales, listas, categorías y reglas se comparten entre todas las teles:
+        gestiónalos mejor desde el <a id="enlaceServidor" href="#" target="_blank" rel="noopener">panel del servidor</a>.
+        Aquí puedes seguir cambiando lo propio de esta tele (ajustes y reproductor).
+      </div>
+      <!-- Canales -->
+      <section id="tab-canales" class="tab on">
+        <div class="cab"><h1>Canales <small id="cuenta"></small></h1>
+          <button id="comprobar" class="btn">Comprobar los visibles</button></div>
+        <div class="filtros">
+          <input id="buscar" type="search" placeholder="Buscar por nombre, categoría o ID…" autocomplete="off">
+          <label>Mostrar<select id="filtro">
+            <option value="">Todos</option><option value="alive">Vivos</option><option value="fav">Favoritos</option>
+            <option value="pending">Sin comprobar</option><option value="dead">Caídos</option><option value="abierto">En abierto</option>
+          </select></label>
+          <label>Categoría<select id="categoria"><option value="">Todas</option></select></label>
+          <label>Orden<select id="orden"></select></label>
+        </div>
+        <div class="chips" id="flista" aria-label="Listas"></div>
+        <div id="progreso" class="progreso"></div>
+        <div id="lote" class="lote" hidden>
+          <b id="loteN"></b>
+          <button class="btn small" data-lote="comprobar">Comprobar</button>
+          <button class="btn small" data-lote="fav">★ Favorito</button>
+          <button class="btn small" data-lote="nofav">Quitar ★</button>
+          <button class="btn small" data-lote="categoria">Categoría…</button>
+          <button class="btn small" data-lote="lista">Añadir a lista…</button>
+          <button class="btn small danger" data-lote="borrar">Borrar</button>
+          <button class="btn small ghost" data-lote="ninguno">Quitar selección</button>
+        </div>
+        <div class="tabla-cab">
+          <label class="selt"><input type="checkbox" id="selTodos" title="Seleccionar los visibles"></label>
+          <span>Canal</span><span class="c-cat">Categoría</span><span class="c-est">Estado</span><span></span>
+        </div>
+        <ul id="lista" class="lista canales"></ul>
+        <button id="mas" class="btn ancho" hidden>Ver más</button>
+      </section>
+
+      <!-- Agenda -->
+      <section id="tab-agenda" class="tab">
+        <div class="cab"><h1>Agenda deportiva</h1></div>
+        <div class="filtros">
+          <label>Día<select id="agDia"></select></label>
+          <label>Mostrar<select id="agFiltro"><option value="con">Con mis canales</option><option value="abierto">En abierto</option><option value="todos">Todos</option></select></label>
+        </div>
+        <ul id="agenda" class="lista"></ul>
+      </section>
+
+      <!-- Añadir -->
+      <section id="tab-anadir" class="tab">
+        <div class="cab"><h1>Añadir canales</h1></div>
+        <div class="tarjeta">
+          <h2>Nombre de la lista</h2>
+          <input id="nombreLista" type="text" placeholder="Por ejemplo: Fútbol, Mis canales… (opcional)" list="listasDl">
+          <datalist id="listasDl"></datalist>
+          <p class="muted">Lo que añadas con texto o archivos irá a esta lista. Con varios archivos y sin nombre, cada archivo es una lista.</p>
+        </div>
+        <div class="rejilla2">
+          <div class="tarjeta">
+            <h2>Pegar enlaces o una lista</h2>
+            <p class="muted">Enlaces acestream://, Content ID sueltos, listas M3U/TXT (Acestream o IPTV) o el JSON exportado desde AceList.</p>
+            <textarea id="texto" rows="7" placeholder="acestream://…"></textarea>
+            <button id="importarTexto" class="btn primary">Añadir a la tele</button>
+          </div>
+          <div class="tarjeta">
+            <h2>Desde archivos</h2>
+            <p class="muted">Uno o varios .m3u, .txt o .json.</p>
+            <input id="archivo" type="file" multiple accept=".json,.m3u,.m3u8,.txt,application/json,text/plain">
+            <button id="importarArchivo" class="btn">Subir archivos</button>
+            <h2>Desde una URL</h2>
+            <input id="url" type="url" placeholder="https://…/lista.m3u">
+            <input id="urlNombre" type="text" placeholder="Nombre de la lista (opcional)">
+            <label class="check"><input id="urlGuardar" type="checkbox" checked> Guardarla para actualizarla después</label>
+            <button id="importarUrl" class="btn">Importar URL</button>
+          </div>
+        </div>
+        <div class="tarjeta">
+          <h2>Un canal</h2>
+          <div class="fila3">
+            <input id="unId" type="text" placeholder="acestream://… o Content ID">
+            <input id="unNombre" type="text" placeholder="Nombre">
+            <input id="unCategoria" type="text" placeholder="Categoría" list="cats">
+          </div>
+          <button id="anadirUno" class="btn">Añadir canal</button>
+        </div>
+      </section>
+
+      <!-- Listas -->
+      <section id="tab-fuentes" class="tab">
+        <div class="cab"><h1>Listas</h1><button id="actualizarFuentes" class="btn primary">Actualizar las de internet</button></div>
+        <p class="muted">Al desactivar una lista, sus canales se ocultan en la tele (no se borran). Las listas de internet se pueden volver a descargar.</p>
+        <ul id="fuentes" class="lista"></ul>
+      </section>
+
+      <!-- Categorías -->
+      <section id="tab-categorias" class="tab">
+        <div class="cab"><h1>Categorías</h1><button id="unificar" class="btn">Juntar repetidas</button></div>
+        <p class="muted">Renombra para juntar categorías repetidas («LA LIGA» y «LaLiga»): si pones un nombre que ya existe, se unen.</p>
+        <ul id="categorias" class="lista"></ul>
+        <h2 id="ocultasTit" hidden>Ocultas en la tele</h2>
+        <ul id="ocultas" class="lista"></ul>
+      </section>
+
+      <!-- Ajustes -->
+      <section id="tab-ajustes" class="tab">
+        <div class="cab"><h1>Ajustes de la tele</h1></div>
+        <p class="muted">Los cambios se aplican en la tele al momento.</p>
+        <div id="ajustes" class="ajustes"></div>
+      </section>
+
+      <!-- Copia -->
+      <section id="tab-copia" class="tab">
+        <div class="cab"><h1>Copia de seguridad</h1></div>
+        <div class="rejilla2">
+          <div class="tarjeta">
+            <h2>Descargar</h2>
+            <p class="muted">El JSON guarda todo (nombres, categorías, favoritos y comprobaciones) y se puede volver a cargar en «Añadir» o en AceList del PC.</p>
+            <button class="btn primary" data-exportar="json">Descargar JSON</button>
+            <button class="btn" data-exportar="m3u">Descargar lista M3U</button>
+          </div>
+          <div class="tarjeta" id="actualizarApp" hidden>
+            <h2>Actualizar la app de la tele</h2>
+            <p class="muted">Elige la APK nueva de HomeTV (la que te llega por GitHub). La tele abrirá su instalador: confirma con el mando.</p>
+            <input id="apk" type="file" accept=".apk,application/vnd.android.package-archive">
+            <button class="btn primary" id="subirApk">Enviar a la tele e instalar</button>
+            <div id="apkProgreso" class="progreso"></div>
+          </div>
+          <div class="tarjeta peligro">
+            <h2>Borrar todos los canales</h2>
+            <p class="muted">Quita todos los canales de la tele. Las listas guardadas se mantienen. No se puede deshacer.</p>
+            <button class="btn danger" id="borrarTodo">Borrar todos los canales</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="dlg" class="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+  <datalist id="cats"></datalist>
+  <div id="toast" class="toast"></div>
+  <script src="/movil.js"></script>
+</body>
+</html>

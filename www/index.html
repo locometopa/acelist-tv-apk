@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>HomeTV</title>
+  <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="side" data-zone="nav">
+      <div class="brand"><img src="img/icon.svg" alt=""><span>Home<span class="dot-acc">TV</span></span></div>
+      <nav class="menu" aria-label="Menú principal">
+        <button class="mi on" data-section="inicio" data-key="s:inicio"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</button>
+        <button class="mi" data-section="canales" data-key="s:canales"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M8 2l4 4 4-4"/></svg>Canales</button>
+        <button class="mi" data-section="favoritos" data-key="s:favoritos"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.8 5.9 6.2.7-4.6 4.3 1.3 6.1-5.7-3.1-5.7 3.1 1.3-6.1L3 9.6l6.2-.7z"/></svg>Favoritos</button>
+        <button class="mi" data-section="agenda" data-key="s:agenda"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Agenda</button>
+        <button class="mi" data-section="guia" data-key="s:guia"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h3M13 13h5M8 16h6"/></svg>Guía</button>
+        <button class="mi" data-section="buscar" data-key="s:buscar"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Buscar</button>
+        <button class="mi" data-section="ajustes" data-key="s:ajustes"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Ajustes</button>
+      </nav>
+      <div class="side-foot">
+        <div class="clock" id="clock"></div>
+        <button class="pill engine wait" id="engine" data-key="engine">Motor…</button>
+        <div class="warp" id="warp" style="display:none"></div>
+      </div>
+    </aside>
+
+    <main id="main" data-zone="main">
+      <section class="sec on" id="sec-inicio"></section>
+
+      <section class="sec" id="sec-canales">
+        <section class="directo" id="directo" aria-label="En directo ahora"></section>
+        <div class="sec-head">
+          <h1><span id="titulo-canales">Canales</span> <small id="count"></small></h1>
+          <div class="tools">
+            <button class="btn" id="search" data-key="search">Buscar</button>
+            <button class="btn" id="verify" data-key="verify">Comprobar</button>
+          </div>
+        </div>
+        <div class="selectores" id="filters"></div>
+        <div class="progress" id="progress"></div>
+        <section class="list" id="grid"></section>
+      </section>
+
+      <section class="sec" id="sec-agenda"></section>
+      <section class="sec" id="sec-guia"></section>
+      <section class="sec" id="sec-listas"></section>
+      <section class="sec" id="sec-ajustes"></section>
+    </main>
+  </div>
+
+  <div class="playerlayer" id="playerlayer">
+    <video id="video" playsinline autoplay></video>
+    <div class="zap" id="zap"></div>
+    <!-- Controles del reproductor en el navegador (PC y móvil). En la tele con mando se usa el HUD de abajo. -->
+    <div class="pc-arriba">
+      <button class="pc-boton pc-volver" id="pc-volver" aria-label="Volver (Esc)"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg><span>Volver</span></button>
+      <div class="pc-info"><b id="pc-titulo"></b><span id="pc-estado"></span></div>
+      <span class="pc-num" id="pc-num"></span>
+    </div>
+    <div class="pc-centro" id="pc-centro" aria-live="polite">
+      <div class="pc-carga"><span class="pc-rueda" aria-hidden="true"></span><span id="pc-carga-txt">Cargando…</span></div>
+      <div class="pc-error">
+        <b>No se puede ver este canal</b>
+        <span id="pc-error-txt"></span>
+        <div class="pc-error-acc">
+          <button class="pc-btn primario" id="pc-reintentar">Reintentar</button>
+          <button class="pc-btn" id="pc-sig-canal">Siguiente canal</button>
+          <button class="pc-btn" id="pc-copiar-err">Copiar enlace para VLC</button>
+          <button class="pc-btn" id="pc-salir-err">Volver</button>
+        </div>
+      </div>
+      <button class="pc-play-grande" id="pc-play-grande" aria-label="Reproducir"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+    </div>
+    <div class="pc-aviso" id="pc-aviso" role="status"></div>
+    <div class="pc-barra">
+      <button class="pc-boton" id="pc-ant" aria-label="Canal anterior (↑)" title="Canal anterior (↑)"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6v12M18 6l-9 6 9 6z"/></svg></button>
+      <button class="pc-boton" id="pc-play" aria-label="Pausa (espacio)" title="Pausa (espacio)"><svg aria-hidden="true" viewBox="0 0 24 24" class="i-pausa"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg><svg aria-hidden="true" viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg></button>
+      <button class="pc-boton" id="pc-sig" aria-label="Canal siguiente (↓)" title="Canal siguiente (↓)"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6v12M6 6l9 6-9 6z"/></svg></button>
+      <div class="pc-vol">
+        <button class="pc-boton" id="pc-mute" aria-label="Silenciar (M)" title="Silenciar (M)"><svg aria-hidden="true" viewBox="0 0 24 24" class="i-son"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg><svg aria-hidden="true" viewBox="0 0 24 24" class="i-mudo"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg></button>
+        <input type="range" id="pc-volumen" min="0" max="1" step="0.05" value="1" aria-label="Volumen">
+      </div>
+      <span class="pc-directo"><i></i>EN DIRECTO</span>
+      <span class="pc-hueco"></span>
+      <button class="pc-boton pc-texto" id="pc-canales" aria-label="Lista de canales (C)" title="Lista de canales (C)"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Canales</span></button>
+      <button class="pc-boton" id="pc-vlc" aria-label="Copiar enlace para VLC" title="Copiar enlace para VLC"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></button>
+      <button class="pc-boton" id="pc-pip" aria-label="Ventana flotante (P)" title="Ventana flotante (P)"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/></svg></button>
+      <button class="pc-boton" id="pc-full" aria-label="Pantalla completa (F)" title="Pantalla completa (F)"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
+    <aside class="pc-lista" id="pc-lista" aria-label="Canales">
+      <div class="pc-lista-cab"><b>Canales</b><button class="pc-boton" id="pc-lista-cerrar" aria-label="Cerrar la lista"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="pc-lista-cuerpo" id="pc-lista-cuerpo"></div>
+    </aside>
+    <div class="hud">
+      <div class="hud-info">
+        <div class="hud-num" id="hud-num"></div>
+        <div id="hud-title"></div>
+        <div id="hud-stats" class="muted"></div>
+        <div class="hud-help muted">▲▼ cambiar de canal · OK opciones · Atrás salir</div>
+      </div>
+      <div class="hud-actions">
+        <button class="btn" id="hud-prev">▲ Anterior</button>
+        <button class="btn" id="hud-next">▼ Siguiente</button>
+        <button class="btn" id="hud-ace">Ace Player</button>
+        <button class="btn" id="hud-vlc">VLC</button>
+        <button class="btn primary" id="hud-close">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="vendor/capacitor.js"></script>
+  <script src="vendor/hls.min.js"></script>
+  <script src="vendor/qrcode.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

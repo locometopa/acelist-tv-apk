@@ -1,0 +1,60 @@
+name: Compilar APK
+
+# Compila la app (rama «fuente») y deja la APK y su versión en la rama «main», de donde la tele se actualiza.
+# Necesita el secreto KEYSTORE_B64 (la clave de firma en base64). Sin él no compila, para no firmar con otra clave.
+on:
+  workflow_dispatch:
+  push:
+    branches: [fuente]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Clave de firma
+        env:
+          KS: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS" ]; then echo "Falta el secreto KEYSTORE_B64"; exit 1; fi
+          echo "$KS" | base64 -d > android/app/acelist-tv.keystore
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Copiar la web al proyecto Android
+        run: npx cap sync android
+
+      - name: Compilar
+        working-directory: android
+        env:
+          ACELIST_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Publicar la APK en main
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p /tmp/pub
+          cp android/app/build/outputs/apk/release/app-release.apk /tmp/pub/HomeTV.apk
+          cp /tmp/pub/HomeTV.apk /tmp/pub/AceList-TV.apk   # para las versiones 0.12-0.14, que buscan este nombre
+          cd /tmp/pub
+          echo "$VERSION" > version.txt
+          git init -q -b main && git config user.name github-actions && git config user.email actions@github.com
+          git add -A && git commit -qm "HomeTV $VERSION"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" main

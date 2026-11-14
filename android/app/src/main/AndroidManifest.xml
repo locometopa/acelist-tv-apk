@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:banner="@drawable/banner_hometv"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:banner="@drawable/banner_hometv"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- Reproductor nativo (Media3 / ExoPlayer) -->
+        <activity
+            android:name=".ReproductorActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Google TV: la app sale en el inicio de la tele y no exige pantalla táctil -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- Para poder abrir enlaces acestream:// en la app de Ace Stream -->
+    <!-- Apps con las que se pueden abrir los canales (Android 11+ exige declararlas) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="acestream" />
+        </intent>
+        <intent>
+            <action android:name="org.acestream.action.start_content" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" android:mimeType="video/*" />
+        </intent>
+        <package android:name="org.acestream.media" />
+        <package android:name="org.acestream.media.atv" />
+        <package android:name="org.acestream.core" />
+        <package android:name="org.acestream.core.atv" />
+        <package android:name="org.acestream.live" />
+        <package android:name="org.acestream.node" />
+        <package android:name="org.free.aceserve" />
+        <package android:name="com.jopsis.httpaceserveproxy" />
+        <package android:name="org.videolan.vlc" />
+        <package android:name="org.videolan.vlc.betav7neon" />
+        <package android:name="com.cloudflare.onedotonedotonedotone" />
+        <package android:name="ch.protonvpn.android" />
+        <package android:name="com.android.vending" />
+    </queries>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>
