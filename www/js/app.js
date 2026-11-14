@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.59.0';
+const VERSION = '0.59.1';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -37,6 +37,7 @@ function pareceMovil() {
 const TACTIL = !ESTELE && (!!(window.matchMedia && matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 0);
 // Si en una tele se dejó puesto «móvil» (versiones anteriores), se vuelve a automático para poder usar los ajustes
 if (ESTELE && store.settings.diseno === 'movil') store.setSettings({ diseno: 'auto' });
+document.documentElement.classList.toggle('estele', ESTELE);
 const MOVIL = (store.settings.diseno === 'movil' && TACTIL) || (store.settings.diseno !== 'tele' && pareceMovil());
 document.documentElement.classList.toggle('movil', MOVIL);
 // En el navegador (PC o móvil) el reproductor lleva controles de ratón/dedo; en la tele, el HUD de mando

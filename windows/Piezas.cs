@@ -34,6 +34,7 @@ static class Tema
         if (f.IsHandleCreated) Nativo.BarraOscura(f.Handle);
         else f.HandleCreated += (_, _) => Nativo.BarraOscura(f.Handle);
         Pintar(f);
+        Nativo.Oscurecer(f);
     }
 
     static void Pintar(Control padre)
@@ -85,6 +86,20 @@ static class Tema
 
 static class Nativo
 {
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    static extern int SetWindowTheme(IntPtr ventana, string? tema, string? lista);
+
+    // Barras de desplazamiento oscuras en listas, cajas de texto y paneles con scroll (no se ven barras blancas)
+    public static void Oscurecer(Control c)
+    {
+        void Poner() { try { SetWindowTheme(c.Handle, "DarkMode_Explorer", null); } catch { /* sin uxtheme */ } }
+        if (c is ListBox or TextBox or ScrollableControl or ListView or TreeView)
+        {
+            if (c.IsHandleCreated) Poner(); else c.HandleCreated += (_, _) => Poner();
+        }
+        foreach (Control h in c.Controls) Oscurecer(h);
+    }
+
     [DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr ventana, int atributo, ref int valor, int tamano);
 

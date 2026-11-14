@@ -26,6 +26,14 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
 body { font-family: Outfit, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow-x: hidden; }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* Barras de desplazamiento oscuras y finas (sin barras blancas); en la tele se ocultan: se navega con el mando */
+* { scrollbar-width: thin; scrollbar-color: #4a4a4a transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 8px; }
+*::-webkit-scrollbar-corner { background: transparent; }
+html.estele, html.estele * { scrollbar-width: none; }
+html.estele *::-webkit-scrollbar { display: none; }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: .8rem; word-break: break-all; }

@@ -544,6 +544,7 @@ sealed class Ventana : Form
     {
         base.OnHandleCreated(e);
         Nativo.BarraOscura(Handle);
+        Nativo.Oscurecer(this);
     }
 
     void Ir(Seccion s)
