@@ -25,9 +25,46 @@ export function esStream(url) {
 
 export function parseText(text) {
   const t = String(text || '').replace(/^﻿/, '');
-  if (t.trimStart().startsWith('{')) return parseAceListExport(t);
+  if (t.trimStart().startsWith('{')) {
+    let doc = null;
+    try { doc = JSON.parse(t); } catch { /* lo dice parseAceListExport */ }
+    if (esW3u(doc)) {
+      const { out, invalid } = entradasW3u(doc, esStream);
+      for (const e of out) if (!e.id) e.id = urlId(e.url);
+      if (!out.length) throw new Error('La lista W3U no trae canales que se puedan abrir');
+      return { entries: dedupe(out), invalid };
+    }
+    return parseAceListExport(t);
+  }
   return parseLinks(t);
 }
+
+// Listas W3U (formato JSON de Wiseplay): { groups: [{ name, stations: [{ name, url, image }], groups: [...] }], stations: [...] }
+function esW3u(doc) { return doc && typeof doc === 'object' && (Array.isArray(doc.groups) || Array.isArray(doc.stations)); }
+function entradasW3u(doc, conUrl) {
+  const out = [];
+  let invalid = 0;
+  const vistos = new Set();
+  const recorrer = (nodo, grupo, prof) => {
+    if (!nodo || prof > 6) return;
+    for (const st of Array.isArray(nodo.stations) ? nodo.stations : []) {
+      const enlace = String((st && (st.url || st.link)) || '').trim();
+      const titulo = String((st && (st.name || st.title)) || '').trim();
+      const logo = st && /^https?:\/\//i.test(st.image || st.logo || '') ? (st.image || st.logo) : null;
+      const m = enlace.match(/([0-9a-f]{40})/i);
+      if (m && (!/^https?:\/\//i.test(enlace) || /\/ace\/|acestream|btih/i.test(enlace))) out.push({ id: m[1].toLowerCase(), title: titulo, category: grupo, logo });
+      else if (conUrl(enlace)) out.push({ id: null, url: enlace, alts: [], title: titulo, category: grupo, logo });
+      else invalid++;
+    }
+    for (const g of Array.isArray(nodo.groups) ? nodo.groups : []) {
+      const n = String((g && (g.name || g.title)) || '').trim();
+      recorrer(g, n || grupo, prof + 1);
+    }
+  };
+  recorrer(doc, null, 0);
+  return { out: out.filter((e) => { const k = e.id || e.url; return vistos.has(k) ? false : (vistos.add(k), true); }), invalid };
+}
+
 
 function parseAceListExport(text) {
   let doc;

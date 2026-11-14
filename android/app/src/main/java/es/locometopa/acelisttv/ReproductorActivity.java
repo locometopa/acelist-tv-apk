@@ -105,7 +105,7 @@ public class ReproductorActivity extends Activity {
     private ExoPlayer player;
     private PlayerView vista;
     private LinearLayout panel;
-    private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap;
+    private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap, btnOpciones;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean esTele = true;
@@ -402,12 +402,23 @@ public class ReproductorActivity extends Activity {
         txtEstado = texto(18, 0xFFC9D1DB, false);
         txtAyuda = texto(14, 0xFF8E9AAB, false);
         txtAyuda.setText(esTele
-            ? "▲▼ canal · ◀▶ enlace · OK información · ≡ formato TS/HLS · Atrás salir"
+            ? "▲▼ canal · ◀▶ enlace · OK información · mantén OK: sonido y opciones · Atrás salir"
             : "Desliza ↑↓ canal · ←→ enlace · Toca: información · Doble toque: pausa · Mantén pulsado: arreglar imagen congelada");
         panel.addView(txtNumero);
         panel.addView(txtTitulo);
         panel.addView(txtEstado);
         panel.addView(txtAyuda);
+        // Botón «Sonido y opciones» (en la tele se abre con la tecla Menú)
+        btnOpciones = texto(16, Color.WHITE, true);
+        btnOpciones.setText(esTele ? "♪  Sonido y opciones: mantén pulsado OK (o tecla Menú)" : "♪  Sonido y opciones");
+        btnOpciones.setPadding(36, 18, 36, 18);
+        GradientDrawable bf = new GradientDrawable();
+        bf.setColor(0x33FFFFFF);
+        bf.setCornerRadius(60);
+        btnOpciones.setBackground(bf);
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-2, -2);
+        bl.topMargin = 22;
+        panel.addView(btnOpciones, bl);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         raiz.addView(panel, lp);
 
@@ -435,6 +446,14 @@ public class ReproductorActivity extends Activity {
         gestos = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent e) { return true; }
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (panel.getAlpha() > 0.5f && btnOpciones != null) {
+                    int[] p = new int[2];
+                    btnOpciones.getLocationOnScreen(p);
+                    if (e.getRawX() >= p[0] && e.getRawX() <= p[0] + btnOpciones.getWidth() && e.getRawY() >= p[1] && e.getRawY() <= p[1] + btnOpciones.getHeight()) {
+                        opcionesSonido();
+                        return true;
+                    }
+                }
                 if (panel.getAlpha() > 0.5f) panel.animate().alpha(0f).setDuration(200); else mostrarPanel(5000);
                 return true;
             }
@@ -478,8 +497,83 @@ public class ReproductorActivity extends Activity {
         if (a != null && a.sampleMimeType != null) sb.append(" · audio ").append(a.sampleMimeType.replace("audio/", "").replace("mp4a-latm", "AAC").replace("mpeg", "MP2").toUpperCase(java.util.Locale.ROOT));
         DecoderCounters dc = player.getVideoDecoderCounters();
         if (dc != null) { dc.ensureUpdated(); if (dc.droppedBufferCount > 0) sb.append(" · ").append(dc.droppedBufferCount).append(" fotogramas perdidos"); }
-        sb.append("   ·   ").append(esTele ? "≡ TS/HLS · OK×2 recolocar" : "Mantén pulsado: recolocar");
+        sb.append("   ·   ").append(esTele ? "Mantén OK: sonido · OK×2 recolocar" : "Mantén pulsado: recolocar");
         return sb.toString();
+    }
+
+    private void alternarFormato() {
+        formato = "hls".equals(formato) ? "ts" : "hls";
+        formatoElegido = formato;
+        if (!fuentes.isEmpty() && "ts".equals(formato) && soloHls.remove(fuentes.get(fuente)[0]))
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("soloHls", new java.util.HashSet<>(soloHls)).apply();
+        reintentos = 0;
+        cargar(false);
+        txtEstado.setText("Probando en formato " + ("hls".equals(formato) ? "HLS (troceado)" : "TS (continuo)") + "…");
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("formato", formato).apply();
+    }
+
+    private static String nombreAudio(String mime) {
+        if (mime == null) return "desconocido";
+        String m = mime.replace("audio/", "");
+        switch (m) {
+            case "mp4a-latm": return "AAC";
+            case "ac3": return "AC3 (Dolby)";
+            case "eac3": case "eac3-joc": return "E-AC3 (Dolby+)";
+            case "mpeg": case "mpeg-L2": return "MP2";
+            case "mpeg-L1": return "MP1";
+            default: return m.toUpperCase(java.util.Locale.ROOT);
+        }
+    }
+
+    // Sonido y opciones del canal: elegir pista de audio, convertir el sonido en el servidor, TS/HLS y otro enlace
+    private void opcionesSonido() {
+        if (player == null) return;
+        mostrarPanel(8000);
+        java.util.List<String> textos = new ArrayList<>();
+        java.util.List<Runnable> acciones = new ArrayList<>();
+        int n = 0;
+        for (Tracks.Group g : player.getCurrentTracks().getGroups()) {
+            if (g.getType() != C.TRACK_TYPE_AUDIO) continue;
+            for (int i = 0; i < g.length; i++) {
+                androidx.media3.common.Format f = g.getTrackFormat(i);
+                n++;
+                boolean ok = g.isTrackSupported(i, true);
+                String txt = (g.isTrackSelected(i) ? "✓ " : "") + "Pista " + n + ": " + (f.language != null && !f.language.equals("und") ? f.language + " · " : "")
+                    + nombreAudio(f.sampleMimeType) + (f.channelCount > 2 ? " " + f.channelCount + " canales" : "") + (ok ? "" : " — esta tele no la reproduce");
+                textos.add(txt);
+                final int fi = i; final Tracks.Group fg = g; final String nom = "Pista " + n;
+                acciones.add(() -> {
+                    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                        .setOverrideForType(new androidx.media3.common.TrackSelectionOverride(fg.getMediaTrackGroup(), fi)).build());
+                    txtEstado.setText("Sonido: " + nom);
+                });
+            }
+        }
+        if (n == 0) { textos.add("Este enlace no trae pistas de sonido"); acciones.add(() -> {}); }
+        final String id = fuentes.isEmpty() ? null : fuentes.get(fuente)[0];
+        final String directa = fuentes.isEmpty() ? null : fuentes.get(fuente)[1];
+        if (id != null && (directa == null || directa.isEmpty()) && servidorCasa() != null) {
+            final boolean conv = soloAac.contains(id);
+            textos.add(conv ? "Volver al sonido original (sin convertir)" : "¿No se oye? Convertir el sonido en el servidor");
+            acciones.add(() -> {
+                if (conv) soloAac.remove(id); else { soloAac.add(id); aacFallido.remove(id); }
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("soloAac", new java.util.HashSet<>(soloAac)).apply();
+                avisoAudio = conv;
+                reintentos = 0;
+                cargar(false);
+                txtEstado.setText(conv ? "Volviendo al sonido original…" : "Pasando el sonido por el servidor…");
+            });
+        }
+        if (directa == null || directa.isEmpty()) {
+            textos.add("Probar en formato " + ("hls".equals(formato) ? "TS (continuo)" : "HLS (troceado)"));
+            acciones.add(this::alternarFormato);
+        }
+        if (fuentes.size() > 1) { textos.add("Probar otro enlace (" + fuentes.size() + " en total)"); acciones.add(() -> cambiarFuente(1)); }
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Sonido y opciones")
+            .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
+            .setNegativeButton("Cerrar", null)
+            .show();
     }
 
     private void mostrarPanel(long ms) {
@@ -835,12 +929,18 @@ public class ReproductorActivity extends Activity {
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER: {
+                // Mantener OK pulsado: sonido y opciones (muchos mandos no tienen tecla Menú)
+                if (event.getRepeatCount() == 3) { ultimoOk = 0; opcionesSonido(); return true; }
+                if (event.getRepeatCount() > 0) return true;
                 long t = System.currentTimeMillis();
                 if (t - ultimoOk < 600) { ultimoOk = 0; recolocar(); } else { ultimoOk = t; mostrarPanel(5000); }
                 return true;
             }
             case KeyEvent.KEYCODE_MENU:
-            case KeyEvent.KEYCODE_SETTINGS: {
+            case KeyEvent.KEYCODE_SETTINGS:
+                opcionesSonido();
+                return true;
+            case KeyEvent.KEYCODE_PROG_RED: {
                 // Cambiar entre flujo continuo (TS) y troceado (HLS) para comparar
                 formato = "hls".equals(formato) ? "ts" : "hls";
                 formatoElegido = formato;

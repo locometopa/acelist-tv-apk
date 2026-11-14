@@ -839,9 +839,14 @@ html.webpc .playerlayer.controles, html.webpc .playerlayer.pausa, html.webpc .pl
 html.movil .dest-grid, html.movil .destacados.n2 .dest-grid, html.movil .destacados.n3 .dest-grid, html.movil .destacados.n4 .dest-grid { grid-template-columns: 1fr 1fr; gap: .7rem; }
 html.movil .dest { min-height: 8rem; padding: .8rem; }
 html.movil .d-tit { font-size: 1.05rem; }
-html.movil .l-bloque { flex-basis: 4rem; }
-html.movil .l-donde { max-width: 40%; padding: 0 .6rem; font-size: .8rem; }
-html.movil .l-tit { font-size: 1rem; }
+/* Móvil: el canal y el botón de ver bajan debajo del partido (no se cortan) */
+html.movil .linea { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); grid-template-rows: auto auto; min-height: 0; }
+html.movil .l-bloque { grid-row: 1 / span 2; }
+html.movil .l-txt { padding: .55rem .8rem .1rem; }
+html.movil .l-tit { font-size: 1rem; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
+html.movil .l-donde { max-width: none; min-width: 0; padding: .15rem .8rem .55rem; font-size: .85rem; color: var(--muted); gap: .45rem; }
+html.movil .l-donde .l-play { margin-left: auto; width: 1.9rem; height: 1.9rem; }
+html.movil .l-donde .libre { flex: none; }
 
 /* Sin barras de desplazamiento sobre la tele y el móvil (el navegador del PC las conserva) */
 html:not(.webpc) ::-webkit-scrollbar { display: none; width: 0; height: 0; }

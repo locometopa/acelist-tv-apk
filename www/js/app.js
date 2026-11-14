@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.63.0';
+const VERSION = '0.64.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -2277,7 +2277,7 @@ function renderListas() {
       ${sueltos ? `<button class="srow" data-skey="l:sueltos" data-sueltos><span>Canales sin lista</span><b>${canalesTxt(sueltos)}</b></button>` : ''}
       <button class="srow" data-skey="a:all" data-add="all"><span>Actualizar las listas web activas</span><b>⟳</b></button>
     </div>
-    <input type="file" name="file" multiple accept=".json,.m3u,.m3u8,.txt,application/json,text/plain" hidden>`;
+    <input type="file" name="file" multiple accept=".json,.m3u,.m3u8,.w3u,.txt,application/json,text/plain" hidden>`;
   $('[name=file]', sec).onchange = async (e) => {
     const files = [...e.target.files];
     e.target.value = '';
@@ -3356,7 +3356,7 @@ function renderHomeLista() {
   ui.destacado = null;
   const bloque = (titulo, filas, vacio) => `<section class="lista-bloque" aria-label="${esc(titulo)}"><h2>${esc(titulo)} <small>${filas.filter((f) => !f.startsWith('<h3')).length}</small></h2>${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</section>`;
   const vistos = vistosRecientes().slice(0, 15).map((x) => lineaCanal(x.c));
-  sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo" data-autofocus>▦ Ver en tarjetas</button></div>`
+  sec.innerHTML = (MOVIL ? '' : `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo" data-autofocus>▦ Ver en tarjetas</button></div>`)
     + bloqueDestacados()
     + bloqueAgenda()
     + bloque('Vistos recientemente', vistos, 'Aún no has visto ningún canal');
@@ -3367,7 +3367,7 @@ function renderHomeLista() {
 }
 
 function renderHome() {
-  if (store.settings.inicioLista) return renderHomeLista();
+  if (store.settings.inicioLista || MOVIL) return renderHomeLista();   // en el móvil, siempre en lista
   const sec = $('#sec-inicio');
   const prev = document.activeElement;
   const prevKey = prev?.dataset?.hkey;
