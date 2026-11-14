@@ -317,7 +317,7 @@ sealed class VistaAgenda : Panel
             new("Con mi canal", soloConCanal, () => { soloConCanal = !soloConCanal; CambioSoloConCanal?.Invoke(soloConCanal); MontarChips(); Rellenar(false); }, true),
             new("Todos", deporte.Length == 0, () => { deporte = ""; MontarChips(); Rellenar(false); }, false),
         };
-        foreach (var d in eventos.Where(e => e.Deporte.Length > 0).GroupBy(e => e.Deporte).OrderByDescending(g => g.Count()).Select(g => g.Key).Take(14))
+        foreach (var d in eventos.Where(e => e.Deporte.Length > 0).GroupBy(e => e.Deporte).OrderByDescending(g => g.Count()).Select(g => g.Key).Take(20))
         {
             string dep = d;
             l.Add(new(Icono(dep) + "  " + dep, deporte == dep, () => { deporte = deporte == dep ? "" : dep; MontarChips(); Rellenar(false); }, false));
