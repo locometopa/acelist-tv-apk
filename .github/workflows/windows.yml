@@ -1,0 +1,76 @@
+name: Compilar HomeTV para Windows
+
+# Compila el programa de Windows (carpeta windows/) y lo deja como HomeTV-Windows.zip en Releases (etiqueta «windows»).
+on:
+  workflow_dispatch:
+  push:
+    branches: [fuente]
+    paths: ['windows/**', '.github/workflows/windows.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compilar
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet publish windows/HomeTV.Windows.csproj -c Release -o salida/HomeTV 2>&1 | tee compilacion.log
+
+      # Solo 64 bits y sin las partes de VLC que no se usan (interfaz, Lua, emisión…): el zip pesa bastante menos
+      - name: Aligerar
+        shell: bash
+        run: |
+          cd salida/HomeTV
+          rm -rf libvlc/win-x86 libvlc/win-arm64
+          for d in gui lua visualization services_discovery control stream_out access_output mux meta_engine video_splitter spu; do rm -rf "libvlc/win-x64/plugins/$d"; done
+          rm -f *.pdb
+          ls
+          test -f HomeTV.exe && test -f libvlc/win-x64/libvlc.dll
+          cd .. && 7z a -tzip -mx=9 HomeTV-Windows.zip HomeTV > /dev/null
+          # Para la actualización automática: solo los archivos del programa (el reproductor y .NET no cambian) y la versión
+          mkdir act && cp HomeTV/HomeTV.dll HomeTV/HomeTV.exe HomeTV/LibVLCSharp.dll HomeTV/LibVLCSharp.WinForms.dll act/
+          (cd act && 7z a -tzip -mx=9 ../HomeTV-actualizacion.zip . > /dev/null)
+          grep -o '<Version>[^<]*' ../windows/HomeTV.Windows.csproj | cut -d'>' -f2 > version.txt
+          cat version.txt && ls -la
+
+      # Instalador (Inno Setup): elige carpeta, icono en el escritorio y desinstalador
+      - name: Instalador
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          $v = (Get-Content salida/version.txt -Raw).Trim()
+          & $iscc "/DVersion=$v" windows\instalador.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item salida\HomeTV-Instalador.exe | Select-Object Name, Length
+
+      - name: Publicar en Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view windows >/dev/null 2>&1; then
+            gh release upload windows salida/HomeTV-Instalador.exe salida/HomeTV-Windows.zip salida/HomeTV-actualizacion.zip salida/version.txt --clobber
+          else
+            gh release create windows salida/HomeTV-Instalador.exe salida/HomeTV-Windows.zip salida/HomeTV-actualizacion.zip salida/version.txt --title "HomeTV para Windows" --notes "Descomprime la carpeta HomeTV donde quieras y abre HomeTV.exe." --target "$GITHUB_SHA"
+          fi
+
+      - name: Guardar el error en la rama windows-error
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p /tmp/err && cp compilacion.log /tmp/err/ 2>/dev/null || echo "sin registro" > /tmp/err/compilacion.log
+          cd /tmp/err
+          git init -q -b windows-error && git config user.name github-actions && git config user.email actions@github.com
+          git add -A && git commit -qm "Error de compilación (Windows)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" windows-error
