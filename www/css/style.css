@@ -888,3 +888,15 @@ html.movil .carp-cab .sec-tit { font-size: 1.15rem; }
 /* Nada se puede desplazar en horizontal la página entera (al mover el foco se veía cortada por un lado) */
 html { overflow-x: hidden; }
 @supports (overflow: clip) { html, body, #main { overflow-x: clip; } }
+
+/* Piloto de la VPN del servidor */
+.vpnled { display: inline-flex; align-items: center; gap: .45rem; border: 0; border-radius: 99px; padding: .3rem .75rem; background: #262626; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; max-width: 100%; }
+.vpnled[hidden] { display: none; }
+.vpnled i { width: .6rem; height: .6rem; border-radius: 50%; background: #6b6b6b; flex: none; }
+.vpnled span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vpnled b { color: var(--text); font-weight: 600; }
+.vpnled.on i { background: var(--ok); box-shadow: 0 0 .5rem var(--ok); }
+.vpnled.mal i { background: var(--warn); box-shadow: 0 0 .5rem var(--warn); }
+.vpnled:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+html.movil .vpnled { padding: .35rem .6rem; font-size: .75rem; background: #2e2e2e; }
+html.movil .vpnled b { display: none; }

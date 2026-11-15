@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.65.1';
+const VERSION = '0.66.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -1153,8 +1153,25 @@ async function estadoCasa() {
   } catch (e) {
     ui.casa = { error: e.message };
   }
+  pintarLedVpn();
   if (ui.section === 'ajustes') renderSettings();
   return ui.casa;
+}
+
+// Piloto de la VPN del servidor (menú lateral; en el móvil, arriba): verde = sale por la VPN, ámbar = puesta pero sin
+// conexión, gris = sin VPN. OK o un toque abre el control de la VPN.
+function pintarLedVpn() {
+  const el = $('#vpnLed');
+  if (!el) return;
+  const c = ui.casa;
+  if (!store.settings.servidorCasa || !c || c.error) { el.hidden = true; return; }
+  const v = c.vpn || {};
+  const estado = v.activa ? 'on' : v.configurada ? 'mal' : 'off';
+  const donde = v.activa ? [nombreVpn(v), v.pais].filter(Boolean).join(' · ') : '';
+  el.hidden = false;
+  el.className = `vpnled ${estado}`;
+  el.innerHTML = `<i></i><span>${v.activa ? `VPN <b>${esc(donde)}</b>` : v.configurada ? 'VPN sin conexión' : 'Sin VPN'}</span>`;
+  el.title = v.activa ? `El motor del servidor sale por ${donde}` : v.configurada ? 'La VPN del servidor está puesta pero no conecta' : 'El motor del servidor sale sin VPN';
 }
 
 async function configurarCasa() {
@@ -4026,6 +4043,7 @@ function wire() {
   $('#sec-listas').addEventListener('click', listasClick);
   $('#search').onclick = openSearch;
   $('#engine').onclick = () => checkEngine(true);
+  $('#vpnLed').onclick = () => { estadoCasa(); ayudaVpnCasa(); };
   $('#verify').onclick = () => {
     const lista = visibleChannels();
     if (ui.engineOk === false) {
@@ -4074,6 +4092,7 @@ function wire() {
     if (!store.settings.servidorCasa || document.hidden) return;
     if (!ui.batch) checkEngine();
     traerSincro();
+    estadoCasa();   // también refresca el piloto de la VPN
   }, 60000);
   setInterval(() => { if (!document.hidden) { ui.ultimaBusqueda = Date.now(); buscarActualizacion(); } }, 6 * 3600e3);
 }
