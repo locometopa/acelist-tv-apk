@@ -1003,7 +1003,6 @@ public class ReproductorActivity extends Activity {
             case KeyEvent.KEYCODE_INFO:
                 mostrarPanel(5000);
                 return true;
-            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
             case KeyEvent.KEYCODE_SPACE:
                 if (player.isPlaying()) player.pause(); else player.play();
                 mostrarPanel(3000);
