@@ -347,6 +347,14 @@ public class ReproductorActivity extends Activity {
         } catch (Exception e) { return null; }
     }
 
+    // Fuera de casa (el servidor se alcanza por Tailscale) la imagen original no cabe por la subida de casa:
+    // el servidor la pasa a 720p con su gráfica (y el sonido a AAC)
+    private boolean fueraDeCasa() {
+        String casa = servidorCasa();
+        if (casa == null) return false;
+        try { String h = new URL(casa).getHost(); return h.startsWith("100.") || h.endsWith(".ts.net"); } catch (Exception e) { return false; }
+    }
+
     private void audioNoCompatible(String mime) {
         if (avisoAudio || fuentes.isEmpty()) return;
         avisoAudio = true;
@@ -751,13 +759,14 @@ public class ReproductorActivity extends Activity {
             return;
         }
         final String casa = servidorCasa();
-        if (casa != null && soloAac.contains(id)) {
-            // Sonido convertido a AAC por el servidor de casa (imagen tal cual)
+        final boolean ligera = casa != null && fueraDeCasa() && !aacFallido.contains(id);
+        if (casa != null && (soloAac.contains(id) || ligera)) {
+            // Sonido convertido a AAC por el servidor de casa (imagen tal cual; fuera de casa, reducida a 720p)
             red.execute(() -> {
                 if (anteriorCmd != null) parar(anteriorCmd);
                 String[] s = null; String err = null;
                 try {
-                    JSONObject r = pedir(casa + "/aac/abrir?id=" + id, 60000);
+                    JSONObject r = pedir(casa + "/aac/abrir?id=" + id + (ligera ? "&calidad=baja" : ""), 60000);
                     if (r.has("lista")) s = new String[] { casa + r.getString("lista"), rebase(r.optString("statUrl", "")), rebase(r.optString("commandUrl", "")) };
                     else err = r.optString("error", "El servidor no puede convertir el sonido");
                 } catch (Exception e) { err = "El servidor de casa no responde"; }
@@ -782,7 +791,7 @@ public class ReproductorActivity extends Activity {
                     player.setMediaItem(mi.build());
                     player.prepare();
                     player.setPlayWhenReady(true);
-                    txtEstado.setText("Sonido convertido por el servidor…");
+                    txtEstado.setText(ligera ? "Calidad ligera (fuera de casa)…" : "Sonido convertido por el servidor…");
                     if (statUrl != null) ui.postDelayed(sondeo, 2000);
                     ui.postDelayed(vigilante, 60000);
                 });

@@ -96,6 +96,7 @@ sealed class Ajustes
     public bool ListaOculta { get; set; }   // la lista de canales de la izquierda escondida, para dar más sitio al vídeo
     public string UltimoCanal { get; set; } = "";
     public string UsuarioNas { get; set; } = "";   // último usuario puesto al añadir una carpeta del NAS
+    public string CalidadFuera { get; set; } = "auto";   // auto: ligera (720p) solo por Tailscale · original · baja (siempre ligera)
     public string MotorLocal { get; set; } = "auto";   // auto: el del PC solo si falla el del servidor · servidor · pc
     public int Colchon { get; set; } = 6000;   // milisegundos de vídeo que se guardan antes de enseñarlo (más = menos cortes, más retraso)
 
@@ -559,7 +560,7 @@ sealed class Ventana : Form
         if (actual == null) return "";
         string que = actual.Ahora != null ? $"  ·  {actual.Ahora}" : "";
         string cual = actual.Enlaces.Count > 1 ? $"  ·  enlace {enlace + 1} de {actual.Enlaces.Count}" : "";
-        string modo = colchon > ajustes.Colchon ? $"  ·  colchón {colchon / 1000} s" : "";
+        string modo = (colchon > ajustes.Colchon ? $"  ·  colchón {colchon / 1000} s" : "") + (Ligera && actual.Enlaces.Count > enlace && actual.Enlaces[enlace].Url == null && !motorLocal ? "  ·  ligera 720p" : "");
         return $"▶  {actual.Titulo}{que}{cual}{modo}";
     }
 
@@ -1186,6 +1187,8 @@ sealed class Ventana : Form
         var cColchon = Opciones(new[] { "Normal · 6 s", "Grande · 12 s (menos cortes, más retraso)", "Enorme · 20 s" }, Array.IndexOf(colchones, ajustes.Colchon) is var ic && ic >= 0 ? ic : 0);
         string[] motores = { "auto", "servidor", "pc" };
         var cMotor = Opciones(new[] { "Automático: el del servidor y, si falla, el de este PC", "Siempre el del servidor", "Siempre el de este PC (hace falta tener Ace Stream instalado)" }, Math.Max(0, Array.IndexOf(motores, ajustes.MotorLocal)));
+        string[] calidades = { "auto", "original", "baja" };
+        var cCalidad = Opciones(new[] { "Automática: ligera (720p) fuera de casa, original en casa", "Siempre la original", "Siempre ligera (720p, la convierte el servidor)" }, Math.Max(0, Array.IndexOf(calidades, ajustes.CalidadFuera)));
         // Interfaz
         var kOculta = Marca("Esconder el panel de agenda y canales (más sitio para el vídeo)", ajustes.ListaOculta);
         var kVivos = Marca("En Canales, enseñar solo los que funcionan", ajustes.SoloVivos);
@@ -1199,7 +1202,7 @@ sealed class Ventana : Form
                 try { Process.Start(new ProcessStartInfo($"http://{Srv}:8096/") { UseShellExecute = true }); }
                 catch (Exception e) { Estado("No se ha podido abrir el panel: " + e.Message); }
             }),
-            Titulo("Reproducción"), Etiqueta("Colchón del vídeo"), cColchon, Etiqueta("Motor de Ace Stream"), cMotor,
+            Titulo("Reproducción"), Etiqueta("Colchón del vídeo"), cColchon, Etiqueta("Motor de Ace Stream"), cMotor, Etiqueta("Calidad de imagen"), cCalidad,
             Nota("Los cambios de reproducción se aplican al abrir el siguiente canal."),
             Titulo("Interfaz"), kOculta, kVivos, kConCanal,
             Titulo("Listas y datos"),
@@ -1215,7 +1218,7 @@ sealed class Ventana : Form
         f.Controls.AddRange(new Control[] { pagina, ok, no });
         f.AcceptButton = ok; f.CancelButton = no;
         Tema.Aplicar(f);
-        foreach (var c in new[] { cColchon, cMotor }) { c.BackColor = Panel1; c.ForeColor = Texto; }
+        foreach (var c in new[] { cColchon, cMotor, cCalidad }) { c.BackColor = Panel1; c.ForeColor = Texto; }
         if (f.ShowDialog(this) != DialogResult.OK) return;
 
         string c1 = LimpiarDireccion(casa.Text), x1 = LimpiarDireccion(fuera.Text);
@@ -1225,6 +1228,7 @@ sealed class Ventana : Form
         ajustes.Colchon = colchones[cColchon.SelectedIndex];
         if (actual == null) colchon = ajustes.Colchon;
         ajustes.MotorLocal = motores[cMotor.SelectedIndex];
+        ajustes.CalidadFuera = calidades[cCalidad.SelectedIndex];
         ajustes.ListaOculta = kOculta.Checked;
         ajustes.SoloVivos = kVivos.Checked;
         ajustes.SoloConCanal = kConCanal.Checked;
@@ -2081,7 +2085,7 @@ sealed class Ventana : Form
         enParon = false;
         lista.Invalidate();
         revisarAudioEn = DateTime.MaxValue;
-        if (viaAac && e.Url == null) { _ = AbrirAac(e); return; }
+        if ((viaAac || Ligera) && e.Url == null && !motorLocal) { _ = AbrirAac(e); return; }
         try
         {
             using var media = new Media(vlc, new Uri(UrlDe(e)));
@@ -2355,21 +2359,26 @@ sealed class Ventana : Form
         catch { /* sin estadísticas: no se toca nada */ }
     }
 
+    // Fuera de casa (por Tailscale) la imagen original no cabe por la subida de casa: el servidor la pasa a 720p con su gráfica
+    bool Ligera => ajustes.CalidadFuera == "baja" || (ajustes.CalidadFuera == "auto" && ajustes.ServidorExterno.Length > 0 && Srv == ajustes.ServidorExterno && Srv != ajustes.Servidor);
+
     async Task AbrirAac(Enlace e)
     {
+        bool ligera = Ligera;
         try
         {
-            var r = JsonNode.Parse(await httpLargo.GetStringAsync($"http://{Srv}:8096/aac/abrir?id={e.Id}&kind={(e.Tipo == "infohash" ? "infohash" : "content_id")}"));
+            if (ligera) Estado($"Abriendo {actual?.Titulo} en calidad ligera (fuera de casa)…");
+            var r = JsonNode.Parse(await httpLargo.GetStringAsync($"http://{Srv}:8096/aac/abrir?id={e.Id}&kind={(e.Tipo == "infohash" ? "infohash" : "content_id")}{(ligera ? "&calidad=baja" : "")}"));
             string? l = r?["lista"]?.ToString();
             if (string.IsNullOrEmpty(l)) throw new Exception(r?["error"]?.ToString() ?? "el servidor no responde");
-            if (actual == null || !viaAac) return;
+            if (actual == null || !(viaAac || ligera)) return;
             using var media = new Media(vlc, new Uri($"http://{Srv}:8096{l}"));
             media.AddOption($":network-caching={colchon}");
             media.AddOption(":http-reconnect");
             reproductor.Play(media);
             reproductor.Volume = volumen.Value;
         }
-        catch (Exception ex) { viaAac = false; Estado("No se ha podido pasar el sonido por el servidor: " + ex.Message); }
+        catch (Exception ex) { viaAac = false; Estado((ligera ? "No se ha podido abrir en calidad ligera: " : "No se ha podido pasar el sonido por el servidor: ") + ex.Message); }
     }
 
     void PonerLista(bool enseñar)
