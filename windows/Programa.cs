@@ -1933,6 +1933,7 @@ sealed class Ventana : Form
     // ---------- carpetas compartidas (vídeos del servidor o del NAS) ----------
     string? carpId; string carpNombre = "", carpSub = "";
     readonly Stack<string> carpPila = new();
+    readonly List<string> carpMigas = new();   // nombres de las carpetas abiertas (para la ruta de arriba)
 
     async Task CargarCarpeta(string? id, string sub)
     {
@@ -1948,14 +1949,14 @@ sealed class Ventana : Form
                 foreach (var c in (r?["carpetas"] as JsonArray) ?? new JsonArray())
                 {
                     bool existe = c?["existe"]?.GetValue<bool>() ?? false;
-                    items.Add(new ItemCarpeta { Id = c?["id"]?.ToString() ?? "", Nombre = c?["nombre"]?.ToString() ?? "", Sub = "", Detalle = existe ? $"{c?["elementos"]} elementos" : "No disponible ahora (¿está montada?)" });
+                    items.Add(new ItemCarpeta { Id = c?["id"]?.ToString() ?? "", Nombre = c?["nombre"]?.ToString() ?? "", Sub = "", Detalle = c?["tipo"]?.ToString() == "jellyfin" ? "Jellyfin" : existe ? $"{c?["elementos"]} elementos" : "No disponible ahora (¿está montada?)" });
                 }
                 if (items.Count == 0) Estado("Aún no hay carpetas: añádelas en el panel del servidor → Carpetas");
             }
             else
             {
                 var r = JsonNode.Parse(await http.GetStringAsync($"http://{Srv}:8096/api/carpetas/{Uri.EscapeDataString(id)}/listar?sub={Uri.EscapeDataString(sub)}"));
-                rutaCarpeta.Text = string.Join(" › ", new[] { carpNombre }.Concat(sub.Split('/', StringSplitOptions.RemoveEmptyEntries)));
+                rutaCarpeta.Text = string.Join(" › ", new[] { carpNombre }.Concat(carpMigas));
                 items.Add(new ItemCarpeta { Atras = true, Nombre = "Atrás", Detalle = "Volver (tecla ←)" });
                 foreach (var c in (r?["carpetas"] as JsonArray) ?? new JsonArray())
                     items.Add(new ItemCarpeta { Id = id, Nombre = c?["nombre"]?.ToString() ?? "", Sub = c?["sub"]?.ToString() ?? "", Detalle = "Carpeta" });
@@ -1984,8 +1985,8 @@ sealed class Ventana : Form
         if (ic.Atras) { CarpetaAtras(); return; }
         if (ic.Url == null)
         {
-            if (carpId == null) { carpPila.Clear(); carpNombre = ic.Nombre; }
-            else carpPila.Push(carpSub);
+            if (carpId == null) { carpPila.Clear(); carpMigas.Clear(); carpNombre = ic.Nombre; }
+            else { carpPila.Push(carpSub); carpMigas.Add(ic.Nombre); }
             _ = CargarCarpeta(ic.Id, ic.Sub);
             return;
         }
@@ -1996,7 +1997,7 @@ sealed class Ventana : Form
     void CarpetaAtras()
     {
         if (carpId == null) return;
-        if (carpPila.Count > 0) _ = CargarCarpeta(carpId, carpPila.Pop());
+        if (carpPila.Count > 0) { if (carpMigas.Count > 0) carpMigas.RemoveAt(carpMigas.Count - 1); _ = CargarCarpeta(carpId, carpPila.Pop()); }
         else _ = CargarCarpeta(null, "");
     }
 

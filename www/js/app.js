@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.66.0';
+const VERSION = '0.67.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -3459,7 +3459,7 @@ function renderHome() {
 // ---------- carpetas compartidas (vídeos del servidor o del NAS) ----------
 // Las carpetas se eligen en el panel del servidor; aquí se navega por ellas y los vídeos se ven como un canal
 // (▲▼ en el reproductor pasa al vídeo anterior o siguiente de la misma carpeta).
-const carp = { id: null, nombre: '', sub: '', datos: null, lista: null, error: '', cargando: false, pila: [] };
+const carp = { id: null, nombre: '', sub: '', datos: null, lista: null, error: '', cargando: false, pila: [], migas: [] };
 const tamano = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
 const fechaCorta = (t) => new Date(t).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit' });
 async function pedirCasa(ruta) {
@@ -3495,14 +3495,14 @@ async function renderCarpetas(foco = false) {
     const l = carp.lista || [];
     html = `<h1 class="sec-tit">Carpetas</h1>`
       + (carp.error ? `<p class="bad-text">${esc(carp.error)}</p>` : '')
-      + (l.length ? l.map((c) => fila(c.id, c.fija ? '⏺' : '📁', c.nombre, c.existe ? `${c.elementos} elementos` : 'No disponible ahora', `data-carp="${esc(c.id)}" data-nombre="${esc(c.nombre)}"`)).join('')
+      + (l.length ? l.map((c) => fila(c.id, c.fija ? '⏺' : c.tipo === 'jellyfin' ? '🎞' : '📁', c.nombre, c.tipo === 'jellyfin' ? 'Jellyfin' : c.existe ? `${c.elementos} elementos` : 'No disponible ahora', `data-carp="${esc(c.id)}" data-nombre="${esc(c.nombre)}"`)).join('')
         : '<div class="empty"><p>Aún no hay carpetas. Añádelas en el panel del servidor → Carpetas.</p></div>');
   } else {
     const d = carp.datos;
-    const ruta = [carp.nombre, ...carp.sub.split('/').filter(Boolean)].join(' › ');
+    const ruta = [carp.nombre, ...carp.migas].join(' › ');
     html = `<div class="carp-cab"><button class="hbtn" data-key="cf:atras" data-carp-atras data-autofocus>⬅ Atrás</button><h1 class="sec-tit">${esc(ruta)}</h1></div>`
       + (carp.error ? `<p class="bad-text">${esc(carp.error)}</p>` : '')
-      + (!d ? '<p class="muted">Cargando…</p>' : (d.carpetas.map((c) => fila(`d:${c.sub}`, '📁', c.nombre, 'Carpeta', `data-carp-sub="${esc(c.sub)}"`)).join('')
+      + (!d ? '<p class="muted">Cargando…</p>' : (d.carpetas.map((c) => fila(`d:${c.sub}`, '📁', c.nombre, 'Carpeta', `data-carp-sub="${esc(c.sub)}" data-nombre="${esc(c.nombre)}"`)).join('')
         + d.videos.map((v, i) => fila(`v:${v.sub}`, '▶', v.nombre, `${tamano(v.bytes)} · ${fechaCorta(v.fecha)} · ${v.archivo.split('.').pop().toUpperCase()}`, `data-carp-video="${i}"`)).join('')
         + (!d.carpetas.length && !d.videos.length ? '<div class="empty"><p>Esta carpeta está vacía.</p></div>' : '')));
   }
@@ -3513,9 +3513,9 @@ async function renderCarpetas(foco = false) {
 function menuCarpetas() { document.querySelector('.mi[data-section="carpetas"]')?.classList.toggle('oculta', !store.settings.servidorCasa); }
 async function carpetasClick(e) {
   const c = e.target.closest('[data-carp]');
-  if (c) { carp.pila = []; carp.id = c.dataset.carp; carp.nombre = c.dataset.nombre; carp.sub = ''; carp.datos = null; await renderCarpetas(); await cargarCarpetas(); renderCarpetas(true); return; }
+  if (c) { carp.pila = []; carp.migas = []; carp.id = c.dataset.carp; carp.nombre = c.dataset.nombre; carp.sub = ''; carp.datos = null; await renderCarpetas(); await cargarCarpetas(); renderCarpetas(true); return; }
   const s = e.target.closest('[data-carp-sub]');
-  if (s) { carp.pila.push(carp.sub); carp.sub = s.dataset.carpSub; carp.datos = null; await cargarCarpetas(); renderCarpetas(true); return; }
+  if (s) { carp.pila.push(carp.sub); carp.migas.push(s.dataset.nombre || ''); carp.sub = s.dataset.carpSub; carp.datos = null; await cargarCarpetas(); renderCarpetas(true); return; }
   if (e.target.closest('[data-carp-atras]')) { carpetasAtras(); return; }
   const v = e.target.closest('[data-carp-video]');
   if (v && carp.datos) {
@@ -3525,7 +3525,7 @@ async function carpetasClick(e) {
 }
 function carpetasAtras() {
   if (!carp.id) return false;
-  if (carp.pila.length) carp.sub = carp.pila.pop();
+  if (carp.pila.length) { carp.sub = carp.pila.pop(); carp.migas.pop(); }
   else { carp.id = null; carp.datos = null; carp.lista = null; }
   cargarCarpetas().then(() => renderCarpetas(true));
   return true;
