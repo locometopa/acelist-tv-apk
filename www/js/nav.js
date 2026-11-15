@@ -159,6 +159,15 @@ export function focusEl(el, center = true) {
   }
 }
 
+// ¿Está el elemento dentro de lo que se ve ahora (de su zona con desplazamiento o de la ventana)?
+function enPantalla(el) {
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return false;
+  const cont = contenedorScroll(el);
+  const z = cont ? cont.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+  return r.top >= z.top - 2 && r.bottom <= z.bottom + 2;
+}
+
 function contenedorScroll(el) {
   for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
     const oy = getComputedStyle(p).overflowY;
@@ -217,7 +226,14 @@ export function move(dir) {
   if (zonaActual === 'nav' && dir === 'right') {
     const main = document.querySelector('[data-zone="main"]');
     const dentro = main ? focusables(main) : [];
-    const destino = rememberedIn('main') || dentro.find((x) => x.matches('[data-autofocus], .row-btn, .ev-btn, .srow, .card')) || dentro[0];
+    // Se vuelve al último elemento solo si sigue a la vista; si no (p. ej. una tarjeta de «Vistos recientemente» que quedó
+    // abajo), se entra por lo primero que se ve en pantalla, sin que la página baje de golpe
+    const recordado = rememberedIn('main');
+    const aLaVista = dentro.filter(enPantalla);
+    const destino = (recordado && enPantalla(recordado) ? recordado : null)
+      || aLaVista.find((x) => x.matches('[data-autofocus]'))
+      || aLaVista.find((x) => x.matches('.hbtn, .row-btn, .ev-btn, .srow, .card'))
+      || aLaVista[0] || dentro.find((x) => x.matches('[data-autofocus], .row-btn, .ev-btn, .srow, .card')) || dentro[0];
     if (destino) focusEl(destino);
   } else if (zonaActual === 'main' && dir === 'left') {
     const destino = document.querySelector('.mi.on') || rememberedIn('nav');
