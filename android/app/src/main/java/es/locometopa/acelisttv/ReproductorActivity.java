@@ -75,7 +75,12 @@ public class ReproductorActivity extends Activity {
     private String urlBloqueo = "";
     private final Runnable mirarBloqueo = new Runnable() {
         @Override public void run() {
-            final String u = urlBloqueo;
+            String u0 = urlBloqueo;
+            // Se dice al servidor qué canal se está viendo (sale en el panel, en Teles)
+            if (u0 != null && !u0.isEmpty() && ids != null && titulos != null && indice < titulos.size()) {
+                try { u0 += "&viendo=" + URLEncoder.encode(titulos.get(indice), "UTF-8"); } catch (Exception ignored) { }
+            }
+            final String u = u0;
             if (u != null && !u.isEmpty() && !red.isShutdown()) {
                 red.execute(() -> {
                     try {

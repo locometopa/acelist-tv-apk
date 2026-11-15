@@ -141,6 +141,16 @@ public class AceListNativoPlugin extends Plugin {
         call.resolve();
     }
 
+    // Identificador fijo de este aparato (ANDROID_ID): no cambia al reinstalar la app firmada con la misma llave
+    @PluginMethod
+    public void equipo(PluginCall call) {
+        String id = "";
+        try { id = Settings.Secure.getString(getContext().getContentResolver(), Settings.Secure.ANDROID_ID); } catch (Exception ignored) { }
+        JSObject r = new JSObject();
+        r.put("id", id == null ? "" : id);
+        call.resolve(r);
+    }
+
     // Lo que el reproductor aprendió de cada enlace (arrancó o no, peers). Se devuelve y se borra.
     @PluginMethod
     public void resultadosReproductor(PluginCall call) {

@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.69.0';
+const VERSION = '0.69.1';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -1299,10 +1299,16 @@ function nombreTele() {
   return 'Navegador del PC';
 }
 
+// Identificador fijo del aparato (Android): no cambia al reinstalar la app, así la tele no sale repetida en el panel
+let equipoId = '';
+async function leerEquipo() {
+  if (!NATIVE || !plugins.Nativo.equipo) return;
+  try { equipoId = String((await plugins.Nativo.equipo()).id || '').replace(/[^\w-]/g, '').slice(0, 40); } catch { /* app antigua */ }
+}
 function quienSoy() {
   if (!store.settings.teleId) guardarSinSubir(() => { store.data.settings.teleId = Math.random().toString(36).slice(2, 12); });
   const movil = puente.activo ? puente.url(store.settings.movilToken) : '';
-  return `tele=${encodeURIComponent(store.settings.teleId)}&nombre=${encodeURIComponent(nombreTele())}&v=${encodeURIComponent(VERSION)}&movil=${encodeURIComponent(movil)}`;
+  return `tele=${encodeURIComponent(store.settings.teleId)}${equipoId ? `&equipo=${encodeURIComponent(equipoId)}` : ''}&nombre=${encodeURIComponent(nombreTele())}&v=${encodeURIComponent(VERSION)}&movil=${encodeURIComponent(movil)}`;
 }
 
 function huella(o) {
@@ -4153,6 +4159,7 @@ async function startup() {
   }
   ui.ultimaBusqueda = Date.now();
   buscarActualizacion();
+  await leerEquipo();
   if (store.settings.servidorCasa) { estadoCasa(); traerSincro(); setTimeout(() => subirCopia(), 30000); }
   // 0.12: la lista de TDTChannels se vuelve a leer una vez para tener el código de guía de cada canal
   const tdt = store.source('tdtchannels');
