@@ -141,13 +141,8 @@ sealed class Ventana : Form
 
     // Cabecera (logo, buscador, estado) y menú lateral
     readonly Panel cabecera = new() { Dock = DockStyle.Top, Height = 50, BackColor = Fondo };
-    readonly Panel cajaBuscar = new() { Height = 34, Width = 440, BackColor = Fondo };
+    readonly Panel cajaBuscar = new() { Dock = DockStyle.Top, Height = 36, BackColor = Principal };
     readonly TextBox buscar = new() { BorderStyle = BorderStyle.None, PlaceholderText = "Buscar equipo, partido o canal  (Ctrl+B)", BackColor = Panel1, ForeColor = Texto };
-    readonly Panel riel = new() { Dock = DockStyle.Left, Width = 56, BackColor = Fondo };
-    readonly BotonRiel rHoy = new("\uE80F", "Hoy");
-    readonly BotonRiel rCanales = new("\uE7F4", "Canales");
-    readonly BotonRiel rFavoritos = new("\uE734", "Favoritos");
-    readonly BotonRiel rCarpetas = new("\uE8B7", "Carpetas");
     readonly BotonRiel rLista = new("\uE8FD", "Lista");   // esconde o enseña la lista de canales
     readonly BotonRiel rVpn = new("\uEA18", "VPN");
     readonly BotonRiel rAjustes = new("\uE713", "Ajustes");
@@ -156,10 +151,12 @@ sealed class Ventana : Form
     readonly Panel inicio = new() { Dock = DockStyle.Fill, BackColor = Principal, AutoScroll = true, Visible = false };
     readonly Panel ficha = new() { Dock = DockStyle.Bottom, Height = 200, BackColor = Principal, Visible = false };   // ficha del canal, debajo de la lista
     readonly Button fichaVer = new(), fichaFav = new(), fichaTele = new(), fichaGrabar = new();
-    readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
+    // Panel de la derecha: pestañas Agenda / Canales / Favoritos / Carpetas, buscador y su lista. El vídeo ocupa todo lo demás.
+    readonly Panel lateral = new() { Dock = DockStyle.Right, Width = 430, BackColor = Principal, Padding = new Padding(12, 10, 12, 10) };
+    readonly Button tAgenda = new(), tCanales = new(), tFavoritos = new(), tCarpetas = new(), tCerrar = new();
+    readonly Panel hFiltro1 = Hueco(6), hFiltro2 = Hueco(8);
     readonly Label rutaCarpeta = new() { Dock = DockStyle.Top, Height = 40, Visible = false, Font = Tema.Negrita, ForeColor = Texto, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(4, 0, 0, 0) };
-    readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 38, ColumnCount = 2, RowCount = 1 };
-    readonly Button pestCanales, pestAgenda;
+    readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 40, ColumnCount = 5, RowCount = 1, Margin = new Padding(0) };
     readonly Button bAmpliar, bAudio;
     bool ampliado;        // el vídeo ocupa toda la ventana (sin lista ni ficha)
     bool viaAac;          // el sonido de este canal pasa por el servidor (convertido a AAC) porque aquí no se oía
@@ -168,7 +165,7 @@ sealed class Ventana : Form
     readonly ComboBox categorias = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Standard };
     readonly CheckBox filtro = new() { Dock = DockStyle.Top, Height = 30, AutoSize = false };
     readonly ListBox lista = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 46, BorderStyle = BorderStyle.None, IntegralHeight = false };
-    readonly Label pie = new() { Dock = DockStyle.Right, Width = 440, TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true, Font = Tema.Pequena };
+    readonly Label pie = new() { TextAlign = ContentAlignment.MiddleRight, AutoEllipsis = true, Font = Tema.Pequena };
     readonly Button botonActualizar;
     readonly ContextMenuStrip menu = new();
     readonly ToolTip ayudas = new();
@@ -182,17 +179,18 @@ sealed class Ventana : Form
     VistaAgenda vistaAgenda = null!;
     bool soloVideo;        // se está viendo un canal que se ha puesto desde Hoy o Agenda: la lista de canales no se abre sola
     bool listaForzada;     // se está buscando con la lista escondida: se enseña mientras se busca, sin cambiar el ajuste
-    bool EsVideo => seccion == Seccion.Canales || seccion == Seccion.Favoritos || seccion == Seccion.Carpetas;
+    bool EsVideo => true;   // el vídeo siempre está a la vista; el panel de la derecha se esconde o se enseña
+    bool EsLista => seccion != Seccion.Hoy;   // la pestaña puesta es una lista de canales o de vídeos (no la agenda)
     void ParaBuscar() { if (ajustes.ListaOculta) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } }
     void ColocarLateral()
     {
-        lateral.Visible = EsVideo && !completa && !ampliado && !soloVideo && (!ajustes.ListaOculta || listaForzada);
-        ficha.Visible = lateral.Visible && seccion != Seccion.Carpetas;
+        lateral.Visible = !completa && !ampliado && (!ajustes.ListaOculta || listaForzada);
+        ficha.Visible = lateral.Visible && (seccion == Seccion.Canales || seccion == Seccion.Favoritos);
         if (bAmpliar != null)
         {
             bool grande = !lateral.Visible && !ficha.Visible;
             bAmpliar.Text = grande ? "\uE8A0" : "\uE89F";
-            ayudas.SetToolTip(bAmpliar, grande ? "Volver a ver la lista y la ficha (Z)" : "Ampliar el vídeo: quita la lista y la ficha (Z)");
+            ayudas.SetToolTip(bAmpliar, grande ? "Enseñar el panel de agenda y canales (L)" : "Esconder el panel para ver el vídeo más grande (L)");
         }
     }
     sealed record Par(Evento Ev, Canal Canal);
@@ -217,6 +215,7 @@ sealed class Ventana : Form
     string Srv => srv.Length > 0 ? srv : ajustes.Servidor;
     List<Canal> todos = new();
     List<Evento> agenda = new();
+    string errorAgenda = "";   // por qué el servidor no tiene agenda (p. ej. sin internet)
     List<Canal> vistaCanales = new();
     bool agrupado;               // el servidor entrega los canales ya agrupados (si no, lista simple de enlaces)
     bool enAgenda;
@@ -301,21 +300,43 @@ sealed class Ventana : Form
         };
         categorias.BackColor = Panel1;
         pie.ForeColor = Tenue;
-        pestanas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        pestanas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        pestCanales = Boton("Canales", (_, _) => PonerPestana(false), 100);
-        pestAgenda = Boton("◀  Ocultar lista", (_, _) => PonerLista(false), 100, "Esconder la lista para ver el vídeo más grande (tecla L)");
-        pestCanales.Dock = DockStyle.Fill; pestAgenda.Dock = DockStyle.Fill;
-        pestanas.Controls.Add(pestCanales, 0, 0);
-        pestanas.Controls.Add(pestAgenda, 1, 0);
+        // Pestañas del panel (la de la derecha lo esconde)
+        for (int i = 0; i < 4; i++) pestanas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        pestanas.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));
+        var tabs = new (Button B, string T, Seccion S, string Ayuda)[]
+        {
+            (tAgenda, "Agenda", Seccion.Hoy, "Partidos y eventos por días (tecla A)"),
+            (tCanales, "Canales", Seccion.Canales, "Todos tus canales (tecla C)"),
+            (tFavoritos, "Favoritos", Seccion.Favoritos, "Tus canales favoritos"),
+            (tCarpetas, "Carpetas", Seccion.Carpetas, "Vídeos del servidor, del NAS o de Jellyfin"),
+        };
+        for (int i = 0; i < tabs.Length; i++)
+        {
+            var (b, t, sec, ay) = tabs[i];
+            b.Text = t; b.Dock = DockStyle.Fill; b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderSize = 0; b.Margin = new Padding(0, 0, 4, 0);
+            b.BackColor = Panel1; b.ForeColor = Texto; b.TabStop = false; b.Cursor = Cursors.Hand; b.Font = Tema.Pequena;
+            b.Click += (_, _) => Ir(sec);
+            ayudas.SetToolTip(b, ay);
+            pestanas.Controls.Add(b, i, 0);
+        }
+        tCerrar.Text = "\uE76C"; tCerrar.Font = Tema.IconosPeq; tCerrar.Dock = DockStyle.Fill; tCerrar.FlatStyle = FlatStyle.Flat; tCerrar.FlatAppearance.BorderSize = 0;
+        tCerrar.Margin = new Padding(0); tCerrar.BackColor = Principal; tCerrar.ForeColor = Tenue; tCerrar.TabStop = false; tCerrar.Cursor = Cursors.Hand;
+        tCerrar.Click += (_, _) => PonerLista(false);
+        ayudas.SetToolTip(tCerrar, "Esconder el panel (L)");
+        pestanas.Controls.Add(tCerrar, 4, 0);
+        // Una raya a la izquierda separa el panel del vídeo
+        lateral.Paint += (_, e) => { using var l = new Pen(Tema.Linea); e.Graphics.DrawLine(l, 0, 0, 0, lateral.Height); };
+        // De abajo arriba: lista (o agenda), filtros, buscador, pestañas; la ficha del canal al pie
         lateral.Controls.Add(lista);
-        lateral.Controls.Add(Hueco(8));
+        lateral.Controls.Add(hFiltro2);
         lateral.Controls.Add(filtro);
-        lateral.Controls.Add(Hueco(6));
+        lateral.Controls.Add(hFiltro1);
         lateral.Controls.Add(categorias);
-        lateral.Controls.Add(Hueco(8));
-        lateral.Controls.Add(pestanas);
         lateral.Controls.Add(rutaCarpeta);
+        lateral.Controls.Add(Hueco(10));
+        lateral.Controls.Add(cajaBuscar);
+        lateral.Controls.Add(Hueco(10));
+        lateral.Controls.Add(pestanas);
         lateral.Controls.Add(ficha);
 
         // ----- cabecera: logo, buscador y estado del servidor -----
@@ -338,40 +359,23 @@ sealed class Ventana : Form
         pie.BackColor = Fondo;
         cabecera.Controls.Add(logo);
         cabecera.Controls.Add(nombre);
-        cabecera.Controls.Add(cajaBuscar);
+        foreach (var r in new[] { rLista, rVpn, rAjustes }) { r.Size = new Size(40, 40); cabecera.Controls.Add(r); }
         cabecera.Controls.Add(botonActualizar);
         cabecera.Controls.Add(pie);
+        pie.BackColor = Fondo;
         cabecera.Resize += (_, _) => ColocarCabecera();
 
-        // ----- menú lateral -----
-        // Menú de iconos (Hoy ya incluye la agenda)
-        rHoy.Left = 6; rHoy.Top = 8;
-        rCanales.Left = 6; rCanales.Top = 58;
-        rFavoritos.Left = 6; rFavoritos.Top = 108;
-        rCarpetas.Left = 6; rCarpetas.Top = 158;
-        rLista.Left = 6; rLista.Top = 222;
-        rVpn.Left = 6; rAjustes.Left = 6;
-        foreach (var r in new[] { rHoy, rCanales, rFavoritos, rCarpetas, rLista, rVpn, rAjustes }) riel.Controls.Add(r);
-        riel.Resize += (_, _) => { rAjustes.Top = Math.Max(280, riel.ClientSize.Height - 54); rVpn.Top = rAjustes.Top - 50; };
-        rHoy.Click += (_, _) => Ir(Seccion.Hoy);
-        rCanales.Click += (_, _) => Ir(Seccion.Canales);
-        rFavoritos.Click += (_, _) => Ir(Seccion.Favoritos);
+        // ----- botones de la cabecera: panel, VPN y ajustes -----
         rLista.Click += (_, _) => AlternarLista();
         rVpn.Click += (_, _) => MenuVpn();
         rAjustes.Click += (_, _) => AbrirAjustes();
-        ayudas.SetToolTip(rHoy, "Hoy: destacados y la agenda día a día (tecla H)");
-        ayudas.SetToolTip(rCanales, "Todos tus canales");
-        ayudas.SetToolTip(rFavoritos, "Tus canales favoritos");
-        ayudas.SetToolTip(rCarpetas, "Carpetas de vídeos del servidor o del NAS");
-        rCarpetas.Click += (_, _) => Ir(Seccion.Carpetas);
-        ayudas.SetToolTip(rLista, "Ocultar o mostrar la lista de canales para dejar más sitio al vídeo (tecla L)");
+        ayudas.SetToolTip(rLista, "Esconder o enseñar el panel de agenda y canales (tecla L)");
         ayudas.SetToolTip(rAjustes, "Ajustes: servidor, reproducción, interfaz y listas");
-        riel.Padding = new Padding(0);
 
         // ----- barra de abajo -----
         volumen.Value = Math.Clamp(ajustes.Volumen, 0, 100);
         // Barra de iconos (el nombre de cada uno sale al pasar el ratón)
-        bAmpliar = Icono("\uE89F", (_, _) => Ampliar(lateral.Visible || ficha.Visible), "Ampliar el vídeo: quita la lista y la ficha (Z)");
+        bAmpliar = Icono("\uE89F", (_, _) => AlternarLista(), "Esconder el panel para ver el vídeo más grande (L)");
         bAudio = Icono("\uE8D6", (_, _) => MenuAudio(), "Sonido: pistas de audio y arreglo si no se oye");
         var bGrabar = Icono("\uE7C8", (_, _) => { }, "Grabar este canal en el servidor");
         bGrabar.ForeColor = Color.FromArgb(240, 110, 110);
@@ -387,7 +391,6 @@ sealed class Ventana : Form
             Icono("\uE740", (_, _) => PantallaCompleta(!completa), "Pantalla completa (F o doble clic)"),
         }) botonesBarra.Controls.Add(b);
         estado.Cursor = Cursors.Hand;
-        estado.Click += (_, _) => { if (!EsVideo && actual != null) IrAlVideo(); };
         barra.Controls.Add(estado);
         barra.Controls.Add(botonesBarra);
         barra.Controls.Add(volumen);
@@ -396,16 +399,16 @@ sealed class Ventana : Form
         vistaAgenda.Elegido = ev => BeginInvoke(new Action(() => _ = FichaEvento(ev)));
         vistaAgenda.Reproducir = ev => { var c = CanalDe(ev); if (c != null) Poner(c); };
         vistaAgenda.CambioSoloConCanal = v => { ajustes.SoloConCanal = v; ajustes.Guardar(); };
+        lateral.Controls.Add(vistaAgenda);
+        vistaAgenda.BringToFront();   // ocupa el sitio de la lista (las dos rellenan; solo se ve una)
+        lista.BringToFront();
         cuerpo.Controls.Add(video);
-        cuerpo.Controls.Add(inicio);
-        cuerpo.Controls.Add(vistaAgenda);
         cuerpo.Controls.Add(lateral);
         MontarFicha();
         cuerpo.Resize += (_, _) => ColocarLateral();
         lista.SelectedIndexChanged += (_, _) => { ficha.Invalidate(); PonerBotonesFicha(); };
         Controls.Add(cuerpo);
         Controls.Add(barra);
-        Controls.Add(riel);
         Controls.Add(cabecera);
         inicio.Resize += (_, _) => { if (inicio.Visible) ColocarInicio(); };
 
@@ -437,7 +440,7 @@ sealed class Ventana : Form
         lista.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = lista.IndexFromPoint(e.Location); if (i >= 0) lista.SelectedIndex = i; } };
 
         // ----- eventos -----
-        buscar.TextChanged += (_, _) => AlBuscar();
+        buscar.TextChanged += AlBuscarEv;
         categorias.SelectedIndexChanged += (_, _) => { Filtrar(); ActualizarRiel(); };
         filtro.CheckedChanged += (_, _) =>
         {
@@ -563,15 +566,9 @@ sealed class Ventana : Form
     void PonerPestana(bool deAgenda)
     {
         cambiandoPestana = true;
-        enAgenda = deAgenda;
-        pestCanales.BackColor = deAgenda ? Panel2 : Acento;
-        pestCanales.ForeColor = deAgenda ? Texto : Fondo;
-        pestAgenda.BackColor = Panel2;
-        pestAgenda.ForeColor = Texto;
-        categorias.Visible = !deAgenda;
+        enAgenda = false;   // la agenda tiene su propia pestaña; la lista solo enseña canales
         filtro.Text = "Solo los que funcionan";
-        filtro.Checked = deAgenda ? ajustes.SoloConCanal : ajustes.SoloVivos;
-        buscar.PlaceholderText = deAgenda ? "Buscar partido o equipo…  (Ctrl+B)" : "Buscar canal…  (Ctrl+B)";
+        filtro.Checked = ajustes.SoloVivos;
         cambiandoPestana = false;
         Filtrar();
     }
@@ -761,79 +758,61 @@ sealed class Ventana : Form
 
     void Ir(Seccion s)
     {
-        if (s == Seccion.Agenda) s = Seccion.Hoy;   // la agenda está dentro de Hoy
+        if (s == Seccion.Agenda) s = Seccion.Hoy;   // Hoy = pestaña Agenda
+        bool cambia = s != seccion;
         seccion = s;
-        soloVideo = false;
         listaForzada = false;
-        bool video_ = s == Seccion.Canales || s == Seccion.Favoritos || s == Seccion.Carpetas;
-        bool enCarpetas = s == Seccion.Carpetas;
-        foreach (var c in new Control[] { categorias, filtro, pestanas }) c.Visible = !enCarpetas;
+        bool enAg = s == Seccion.Hoy, enCarpetas = s == Seccion.Carpetas;
+        // Pulsar una pestaña con el panel escondido lo enseña otra vez
+        if (cambia && (ajustes.ListaOculta || ampliado)) { ampliado = false; ajustes.ListaOculta = false; ajustes.Guardar(); }
+        SuspendLayout();
+        vistaAgenda.Visible = enAg;
+        lista.Visible = !enAg;
+        foreach (var c in new Control[] { categorias, filtro, hFiltro1, hFiltro2 }) c.Visible = !enAg && !enCarpetas;
         rutaCarpeta.Visible = enCarpetas;
-        inicio.Visible = false;
-        vistaAgenda.Visible = s == Seccion.Hoy;
-        video.Visible = video_;
+        cajaBuscar.Visible = !enCarpetas;
+        buscar.PlaceholderText = enAg ? "Buscar equipo, partido o competición…" : "Buscar canal…  (Ctrl+B)";
+        if (cambia && buscar.Text.Length > 0) { buscar.TextChanged -= AlBuscarEv; buscar.Clear(); buscar.TextChanged += AlBuscarEv; vistaAgenda.Texto = ""; }
         ColocarLateral();
+        ResumeLayout();
         if (enCarpetas) { _ = CargarCarpeta(carpId, carpSub); lista.Focus(); }
-        else if (video_)
+        else if (!enAg)
         {
-            if (s == Seccion.Favoritos)
-            {
-                if (enAgenda) PonerPestana(false);
-                if (categorias.Items.Count > 1) categorias.SelectedIndex = 1;
-            }
+            if (s == Seccion.Favoritos) { if (categorias.Items.Count > 1) categorias.SelectedIndex = 1; }
             else if (categorias.SelectedIndex == 1) categorias.SelectedIndex = 0;
             Filtrar();
             lista.Focus();
         }
-        else { vistaAgenda.Cargar(agenda); ComponerInicio(); vistaAgenda.Enfocar(); }
+        else { vistaAgenda.Cargar(agenda); vistaAgenda.Enfocar(); }
         ActualizarRiel();
     }
+    void AlBuscarEv(object? s, EventArgs e) => AlBuscar();
 
-    // Poner un canal desde Hoy o Agenda: se ve el vídeo solo, sin que se abra la lista de canales
-    void IrAlVideo()
-    {
-        if (EsVideo) return;
-        Ir(Seccion.Canales);
-        soloVideo = true;
-        ColocarLateral();
-        ActualizarRiel();
-    }
+    // Antes cambiaba de pantalla para ver el vídeo; ahora el vídeo siempre está a la vista
+    void IrAlVideo() { }
 
     void ActualizarRiel()
     {
         bool favs = categorias.SelectedIndex == 1;
-        rHoy.Activo = seccion == Seccion.Hoy;
-        rCanales.Activo = EsVideo && !favs && seccion != Seccion.Carpetas;
-        rFavoritos.Activo = EsVideo && favs && seccion != Seccion.Carpetas;
-        rCarpetas.Activo = seccion == Seccion.Carpetas; rCarpetas.Invalidate();
+        var activa = seccion == Seccion.Hoy ? tAgenda : seccion == Seccion.Carpetas ? tCarpetas : favs ? tFavoritos : tCanales;
+        foreach (var b in new[] { tAgenda, tCanales, tFavoritos, tCarpetas })
+        {
+            b.BackColor = b == activa ? Acento : Panel1;
+            b.ForeColor = b == activa ? Fondo : Texto;
+        }
         rLista.Encendido = lateral.Visible;
-        rLista.Enabled = EsVideo;
-        rHoy.Invalidate(); rCanales.Invalidate(); rFavoritos.Invalidate(); rLista.Invalidate();
+        rLista.Invalidate();
     }
 
-    // Escribir en el buscador desde «Hoy» lleva a la lista: a canales si hay un canal con ese nombre, y si no a la agenda (equipos)
+    // El buscador busca en la pestaña puesta: equipos y partidos en Agenda, canales en Canales (desde Favoritos salta a Canales)
     void AlBuscar()
     {
-
-        if (ajustes.ListaOculta && EsVideo) { if (buscar.Text.Trim().Length > 0) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } }
-        if (seccion == Seccion.Hoy && buscar.Text.Trim().Length > 0)
-        {
-            var palabras = SinTildes(buscar.Text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            bool esCanal = todos.Any(c => palabras.All(p => SinTildes(c.Titulo).Contains(p)));
-            if (!esCanal) { vistaAgenda.Texto = buscar.Text; return; }   // un equipo o partido: se busca en la agenda de Hoy
-            Ir(Seccion.Canales);
-            ParaBuscar();
-            if (enAgenda) PonerPestana(false);
-            buscar.Focus();
-            buscar.SelectionStart = buscar.Text.Length;
-            return;
-        }
-        if (seccion == Seccion.Hoy) { vistaAgenda.Texto = ""; return; }
-        // Si escribes estando en Favoritos, se sale de ahí para buscar en todos los canales
+        if (seccion == Seccion.Hoy) { vistaAgenda.Texto = buscar.Text; return; }
         if (buscar.Text.Trim().Length > 0 && (seccion == Seccion.Favoritos || categorias.SelectedIndex == 1))
         {
+            string t = buscar.Text;
             Ir(Seccion.Canales);
-            ParaBuscar();
+            buscar.Text = t;
             buscar.Focus();
             buscar.SelectionStart = buscar.Text.Length;
             return;
@@ -843,13 +822,11 @@ sealed class Ventana : Form
 
     void ColocarCabecera()
     {
-        int derecha = pie.Width + (botonActualizar.Visible ? botonActualizar.Width + 16 : 0) + 20;
-        int libre = cabecera.ClientSize.Width - 150 - derecha;
-        int ancho = Math.Clamp(libre, 200, 480);
-        int izq = Math.Max(150, (cabecera.ClientSize.Width - ancho) / 2);
-        if (izq + ancho > cabecera.ClientSize.Width - derecha) izq = 150;
-        cajaBuscar.SetBounds(izq, 8, ancho, 34);
-        botonActualizar.SetBounds(cabecera.ClientSize.Width - pie.Width - botonActualizar.Width - 12, 9, botonActualizar.Width, 32);
+        int W = cabecera.ClientSize.Width, x = W - 8;
+        foreach (var r in new[] { rAjustes, rVpn, rLista }) { x -= r.Width + 4; r.Location = new Point(x, 5); }
+        if (botonActualizar.Visible) { x -= botonActualizar.Width + 12; botonActualizar.SetBounds(x, 9, botonActualizar.Width, 32); }
+        int izq = 140;
+        pie.SetBounds(izq, 0, Math.Max(60, x - izq - 12), cabecera.ClientSize.Height);
     }
 
     // ---------- inicio: los partidos de hoy en mis canales ----------
@@ -864,7 +841,7 @@ sealed class Ventana : Form
             .Select(e => (Ev: e, Canal: CanalDe(e)!)).Where(x => x.Canal != null && !x.Canal.Apagada && !x.Ev.Posible)
             .Select(x => (x.Ev, x.Canal, Nota: (x.Ev.Vivo ? 50 : 0) + (x.Canal.Vivo ? 30 : 0) + (x.Ev.Favorito ? 25 : 0) + (x.Canal.Favorito ? 10 : 0) - (x.Ev.Vivo ? 0 : (x.Ev.Inicio - ahora).TotalHours)))
             .OrderByDescending(x => x.Nota).Take(3).OrderBy(x => x.Ev.Inicio).Select(x => (x.Ev, x.Canal)).ToList();
-        vistaAgenda.PonerDestacados(pares);
+        _ = pares;   // los destacados no caben en el panel: la agenda ya empieza por lo que está en directo
         vistaAgenda.Repintar();
     }
 
@@ -985,8 +962,9 @@ sealed class Ventana : Form
             RellenarCategorias();
             Filtrar();
             ComponerInicio();
-            if (seccion == Seccion.Hoy) vistaAgenda.Cargar(agenda);
-            pieBase = $"{Srv}{(Srv == ajustes.ServidorExterno ? " (Tailscale)" : "")} · {todos.Count(c => !c.Apagada)} canales · {todos.Count(c => c.Vivo && !c.Apagada)} funcionan" + (simple ? "" : " · servidor sin actualizar");
+            vistaAgenda.SinDatos = errorAgenda;
+            vistaAgenda.Cargar(agenda);
+            pieBase = $"{Srv}{(Srv == ajustes.ServidorExterno ? " (Tailscale)" : "")} · {todos.Count(c => !c.Apagada)} canales · {todos.Count(c => c.Vivo && !c.Apagada)} funcionan" + (simple ? "" : " · servidor sin actualizar") + (agenda.Count == 0 && errorAgenda.Length > 0 ? $" · sin agenda: el servidor no la puede bajar ({errorAgenda})" : "");
             ActualizarPie();
         }
         catch (Exception e)
@@ -1009,7 +987,7 @@ sealed class Ventana : Form
             Leer(File.ReadAllText(Ajustes.ArchivoCanales));
             RellenarCategorias();
             Filtrar();
-            ComponerInicio();
+            vistaAgenda.Cargar(agenda);
         }
         catch { /* primera vez */ }
     }
@@ -1044,6 +1022,7 @@ sealed class Ventana : Form
                     }
                 if (canal.Clave.Length > 0 && canal.Titulo.Length > 0 && canal.Enlaces.Count > 0) canales.Add(canal);
             }
+            errorAgenda = Cadena(raiz, "agendaError");
             if (raiz.TryGetProperty("agenda", out var ag) && ag.ValueKind == JsonValueKind.Array)
                 foreach (var x in ag.EnumerateArray())
                 {
@@ -1208,7 +1187,7 @@ sealed class Ventana : Form
         string[] motores = { "auto", "servidor", "pc" };
         var cMotor = Opciones(new[] { "Automático: el del servidor y, si falla, el de este PC", "Siempre el del servidor", "Siempre el de este PC (hace falta tener Ace Stream instalado)" }, Math.Max(0, Array.IndexOf(motores, ajustes.MotorLocal)));
         // Interfaz
-        var kOculta = Marca("Esconder la lista de canales al ver un canal (más sitio para el vídeo)", ajustes.ListaOculta);
+        var kOculta = Marca("Esconder el panel de agenda y canales (más sitio para el vídeo)", ajustes.ListaOculta);
         var kVivos = Marca("En Canales, enseñar solo los que funcionan", ajustes.SoloVivos);
         var kConCanal = Marca("En Agenda, enseñar solo los eventos que puedo ver con mis canales", ajustes.SoloConCanal);
 
@@ -1252,8 +1231,8 @@ sealed class Ventana : Form
         ajustes.Guardar();
         listaForzada = false;
         ColocarLateral();
-        if (seccion == Seccion.Hoy) vistaAgenda.Cargar(agenda);
-        PonerPestana(enAgenda);
+        vistaAgenda.Cargar(agenda);
+        PonerPestana(false);
         ActualizarRiel();
         if (servidorCambia) { srv = ""; _ = CargarCanales(true); _ = MirarVpn(); }
         Estado("Ajustes guardados");
@@ -1657,7 +1636,7 @@ sealed class Ventana : Form
             m.Items.Add(it);
         }
         if (!protonListo) m.Items.Add(new ToolStripMenuItem("(para Proton guarda antes su clave en el servidor)") { Enabled = false });
-        m.Show(rVpn, new Point(rVpn.Width + 4, 0), ToolStripDropDownDirection.AboveRight);
+        m.Show(rVpn, new Point(rVpn.Width, rVpn.Height + 4), ToolStripDropDownDirection.BelowLeft);
     }
 
     async Task<bool> EnviarVpn(string json, bool avisar = true)
@@ -2250,10 +2229,9 @@ sealed class Ventana : Form
     }
 
     // Esconde o enseña la lista de canales de la izquierda (se recuerda para la próxima vez)
-    void AlternarLista() { if (EsVideo) PonerLista(!lateral.Visible); }
+    void AlternarLista() { if (!completa) PonerLista(!lateral.Visible); }
     void Ampliar(bool poner)
     {
-        if (poner && !EsVideo) { if (actual == null) return; IrAlVideo(); }
         ampliado = poner;
         // Reducir enseña otra vez la lista aunque la hubieras escondido
         if (!poner) { soloVideo = false; listaForzada = false; if (ajustes.ListaOculta) { ajustes.ListaOculta = false; ajustes.Guardar(); } }
@@ -2403,13 +2381,12 @@ sealed class Ventana : Form
         listaForzada = false;
         ColocarLateral();
         ActualizarRiel();
-        if (enseñar && lateral.Visible) lista.Focus();
+        if (enseñar && lateral.Visible) { if (seccion == Seccion.Hoy) vistaAgenda.Enfocar(); else lista.Focus(); }
     }
 
     void PantallaCompleta(bool poner)
     {
         if (poner == completa) return;
-        if (poner && !EsVideo) { if (actual == null) return; IrAlVideo(); }
         completa = poner;
         if (poner)
         {
@@ -2417,7 +2394,6 @@ sealed class Ventana : Form
             limitesAntes = Bounds;
             lateral.Visible = false;
             ficha.Visible = false;
-            riel.Visible = false;
             cabecera.Visible = false;
             WindowState = FormWindowState.Normal;
             FormBorderStyle = FormBorderStyle.None;
@@ -2434,7 +2410,6 @@ sealed class Ventana : Form
             Bounds = limitesAntes;
             WindowState = estadoAntes;
             ColocarLateral();
-            riel.Visible = true;
             cabecera.Visible = true;
             barra.Visible = true;
             lista.Focus();
@@ -2444,34 +2419,35 @@ sealed class Ventana : Form
     // ---------- teclado ----------
     protected override bool ProcessCmdKey(ref Message msg, Keys tecla)
     {
-        if (tecla == (Keys.Control | Keys.B) || tecla == (Keys.Control | Keys.F)) { if (completa) PantallaCompleta(false); if (ajustes.ListaOculta && EsVideo) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } buscar.Focus(); buscar.SelectAll(); return true; }
-        if (tecla == (Keys.Control | Keys.D)) { _ = CambiarFavorito(seccion == Seccion.Hoy ? heroCanal : null); return true; }
+        if (tecla == (Keys.Control | Keys.B) || tecla == (Keys.Control | Keys.F)) { if (completa) PantallaCompleta(false); if (!lateral.Visible) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } if (!cajaBuscar.Visible) Ir(Seccion.Canales); buscar.Focus(); buscar.SelectAll(); return true; }
+        if (tecla == (Keys.Control | Keys.D)) { _ = CambiarFavorito(null); return true; }
         if (tecla == Keys.F11) { PantallaCompleta(!completa); return true; }
         if (buscar.Focused)
         {
             // Escribiendo: solo Intro / ↓ (ir a la lista) y Esc (borrar)
-            if (tecla == Keys.Enter) { lista.Focus(); ReproducirSeleccionado(); return true; }
-            if (tecla == Keys.Down) { lista.Focus(); return true; }
-            if (tecla == Keys.Escape) { buscar.Clear(); lista.Focus(); return true; }
+            if (tecla == Keys.Enter) { if (EsLista) { lista.Focus(); ReproducirSeleccionado(); } else vistaAgenda.Enfocar(); return true; }
+            if (tecla == Keys.Down) { if (EsLista) lista.Focus(); else vistaAgenda.Enfocar(); return true; }
+            if (tecla == Keys.Escape) { buscar.Clear(); if (EsLista) lista.Focus(); else vistaAgenda.Enfocar(); return true; }
             return base.ProcessCmdKey(ref msg, tecla);
         }
         switch (tecla)
         {
             case Keys.Escape: if (completa) { PantallaCompleta(false); return true; } break;
             case Keys.F: PantallaCompleta(!completa); return true;
-            case Keys.L: if (!completa && EsVideo) { AlternarLista(); return true; } break;
+            case Keys.L: if (!completa) { AlternarLista(); return true; } break;
             case Keys.G: if (!completa) { Ir(seccion == Seccion.Hoy ? Seccion.Canales : Seccion.Hoy); return true; } break;
             case Keys.Enter:
-                if (!completa) { if (seccion == Seccion.Hoy) { if (heroCanal != null) Poner(heroCanal); } else if (EsVideo) ReproducirSeleccionado(); }
-                return true;
+                if (!completa && EsLista) { ReproducirSeleccionado(); return true; }
+                break;   // en la agenda, Intro abre la ficha del evento
             case Keys.H: if (!completa) { Ir(seccion == Seccion.Hoy ? Seccion.Canales : Seccion.Hoy); return true; } break;
+            case Keys.C: if (!completa) { Ir(Seccion.Canales); return true; } break;
             case Keys.E: OtroEnlace(); return true;
             case Keys.A: if (!completa) { Ir(Seccion.Hoy); return true; } break;
-                case Keys.Z: if (!completa && EsVideo) { Ampliar(lateral.Visible || ficha.Visible); return true; } break;
+            case Keys.Z: if (!completa) { AlternarLista(); return true; } break;
             case Keys.M: reproductor.Mute = !reproductor.Mute; Estado(reproductor.Mute ? "Silenciado" : TextoSonando()); return true;
             case Keys.Space:
                 if (EsArchivo) { reproductor.SetPause(reproductor.IsPlaying); Estado((reproductor.IsPlaying ? "❚❚ " : "▶ ") + Posicion()); return true; }
-                if (actual != null) Parar(); else if (EsVideo) ReproducirSeleccionado(); return true;
+                if (actual != null) Parar(); else if (EsLista) ReproducirSeleccionado(); return true;
             case Keys.Up: if (completa) { Zapear(-1); return true; } break;
             case Keys.Down: if (completa) { Zapear(1); return true; } break;
             case Keys.Right when EsArchivo && (completa || !lista.Focused): Saltar(10000); return true;

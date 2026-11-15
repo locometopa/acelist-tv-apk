@@ -312,6 +312,7 @@ sealed class VistaAgenda : Panel
     public Action<Evento>? Elegido;       // clic en el evento: su ficha
     public Action<Evento>? Reproducir;    // clic en el ▶ de la derecha: a verlo
     public Action<bool>? CambioSoloConCanal;
+    public string SinDatos = "";   // por qué no hay agenda (el servidor no la ha podido bajar)
 
     public VistaAgenda(bool soloConCanalInicial)
     {
@@ -323,7 +324,7 @@ sealed class VistaAgenda : Panel
         Controls.Add(chips);
         Controls.Add(destacados);
         destacados.Resize += (_, _) => ColocarDestacados();
-        lista.MeasureItem += (_, e) => e.ItemHeight = e.Index >= 0 && e.Index < lista.Items.Count && lista.Items[e.Index] is Cab ? 46 : 66;
+        lista.MeasureItem += (_, e) => e.ItemHeight = e.Index >= 0 && e.Index < lista.Items.Count && lista.Items[e.Index] is Cab ? 40 : 76;
         lista.DrawItem += Pintar;
         lista.SelectedIndexChanged += (_, _) =>
         {
@@ -335,7 +336,7 @@ sealed class VistaAgenda : Panel
             int i = lista.IndexFromPoint(e.Location);
             if (i < 0 || lista.Items[i] is not Evento ev) return;
             lista.SelectedIndex = i;
-            bool alPlay = e.X > lista.ClientSize.Width - 70 && CanalDe(ev) != null;
+            bool alPlay = e.X > lista.ClientSize.Width - 56 && CanalDe(ev) != null;
             if (alPlay) Reproducir?.Invoke(ev); else Elegido?.Invoke(ev);
         };
         lista.KeyDown += (_, e) =>
@@ -505,7 +506,8 @@ sealed class VistaAgenda : Panel
             if (primeroAhora < 0 && (ev.Vivo || ev.Inicio > ahora)) primeroAhora = lista.Items.Count;
             lista.Items.Add(ev);
         }
-        if (vistos.Count == 0) lista.Items.Add(new Cab(palabras.Length > 0 ? "Ningún evento con eso" : soloConCanal ? "Ningún evento de este día tiene canal entre tus listas (elige «Todos los eventos» u otro día)" : "No hay eventos este día"));
+        if (eventos.Count == 0) lista.Items.Add(new Cab(SinDatos.Length > 0 ? "El servidor no ha podido bajar la agenda" : "Cargando la agenda…"));
+        else if (vistos.Count == 0) lista.Items.Add(new Cab(palabras.Length > 0 ? "Ningún evento con eso" : soloConCanal ? "Ningún evento de este día tiene canal entre tus listas (elige «Todos los eventos» u otro día)" : "No hay eventos este día"));
         lista.EndUpdate();
         if (antes is Evento a && !irAhora)
         {
@@ -527,48 +529,42 @@ sealed class VistaAgenda : Panel
         const TextFormatFlags corta = TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
         if (lista.Items[e.Index] is Cab c)
         {
-            var r = new Rectangle(e.Bounds.Left + 12, e.Bounds.Top + 8, e.Bounds.Width - 24, e.Bounds.Height - 10);
+            var r = new Rectangle(e.Bounds.Left + 2, e.Bounds.Top + 8, e.Bounds.Width - 4, e.Bounds.Height - 10);
             using (var b = new SolidBrush(Tema.Panel2)) g.FillRectangle(b, r);
             TextRenderer.DrawText(g, c.Texto, Tema.Negrita, new Rectangle(r.Left + 12, r.Top, r.Width - 16, r.Height), Tema.Texto, corta);
             return;
         }
         if (lista.Items[e.Index] is not Evento ev) return;
+        // Fila para un panel estrecho: hora y deporte a la izquierda; competición, partido y canal en tres líneas; ▶ a la derecha
         bool sel = (e.State & DrawItemState.Selected) != 0;
-        var fila = new Rectangle(e.Bounds.Left + 12, e.Bounds.Top + 3, e.Bounds.Width - 24, e.Bounds.Height - 6);
+        var fila = new Rectangle(e.Bounds.Left + 2, e.Bounds.Top + 3, e.Bounds.Width - 4, e.Bounds.Height - 6);
         using (var b = new SolidBrush(sel ? Tema.Panel2 : Tema.Panel1)) g.FillRectangle(b, fila);
-        // Bloque de la izquierda: deporte y hora
-        var bloque = new Rectangle(fila.Left, fila.Top, 78, fila.Height);
+        var bloque = new Rectangle(fila.Left, fila.Top, 62, fila.Height);
         using (var b = new SolidBrush(sel ? Color.FromArgb(72, 72, 72) : Tema.Fondo)) g.FillRectangle(b, bloque);
-        using var fEmoji = new Font("Segoe UI Emoji", 12f);
-        TextRenderer.DrawText(g, Icono(ev.Deporte), fEmoji, new Rectangle(bloque.Left, bloque.Top + 4, bloque.Width, 26), Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        using var fEmoji = new Font("Segoe UI Emoji", 11f);
+        TextRenderer.DrawText(g, Icono(ev.Deporte), fEmoji, new Rectangle(bloque.Left, bloque.Top + 6, bloque.Width, 24), Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         string cuando = ev.Aplazado ? "APLAZ." : ev.Vivo ? "DIRECTO" : ev.Inicio.ToString("HH:mm");
-        var colorHora = ev.Vivo && !ev.Aplazado ? Tema.Directo : Tema.Texto;
-        TextRenderer.DrawText(g, cuando, ev.Vivo ? Tema.Pequena : Tema.Negrita, new Rectangle(bloque.Left, bloque.Top + 30, bloque.Width, bloque.Height - 32), colorHora, TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.NoPadding);
-        // Derecha: el canal
+        TextRenderer.DrawText(g, cuando, ev.Vivo ? Tema.Pequena : Tema.Negrita, new Rectangle(bloque.Left, bloque.Top + 34, bloque.Width, 26), ev.Vivo && !ev.Aplazado ? Tema.Directo : Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         var canal = CanalDe(ev);
-        int anchoDer = Math.Max(150, fila.Width / 3);
-        var rDer = new Rectangle(fila.Right - anchoDer, fila.Top, anchoDer - 8, fila.Height);
-        string donde = canal != null ? canal.Titulo : ev.Canales.Length > 0 ? ev.Canales : "Sin canal";
-        Color colorDonde = canal != null ? Tema.Texto : Tema.Tenue;
+        int x = bloque.Right + 10;
+        int ancho = Math.Max(60, fila.Right - x - (canal != null ? 52 : 8));
+        if (canal != null)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var play = new Rectangle(fila.Right - 44, fila.Top + fila.Height / 2 - 16, 32, 32);
+            using (var b = new SolidBrush(ev.Vivo ? Tema.Acento : Tema.Panel2)) g.FillEllipse(b, play);
+            TextRenderer.DrawText(g, "\uE768", Tema.IconosPeq, play, ev.Vivo ? Tema.Fondo : Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+        TextRenderer.DrawText(g, (ev.Favorito ? "★ " : "") + (ev.Competicion.Length > 0 ? ev.Competicion.ToUpperInvariant() : ev.Deporte.ToUpperInvariant()), Tema.Pequena, new Rectangle(x, fila.Top + 5, ancho, 18), Tema.Tenue, corta);
+        TextRenderer.DrawText(g, ev.Titulo.Replace(" - ", " – "), Tema.Negrita, new Rectangle(x, fila.Top + 23, ancho, 24), ev.Favorito ? Tema.Acento : canal != null ? Tema.Texto : Tema.Tenue, corta);
+        string donde = canal != null ? (ev.Posible ? "¿" + canal.Titulo + "?" : canal.Titulo) : ev.Canales.Length > 0 ? "No lo tienes · " + ev.Canales : "Sin canal anunciado";
         if (canal != null)
         {
             using var p = new SolidBrush(canal.Estado == "alive" || canal.EsTv ? Color.FromArgb(90, 200, 120) : canal.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : Color.FromArgb(150, 150, 150));
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            // El punto va pegado al nombre del canal (que se alinea a la derecha)
-            var rTxt = new Rectangle(rDer.Left + 16, rDer.Top, rDer.Width - 16 - 58, rDer.Height);
-            int anchoTxt = Math.Min(rTxt.Width, TextRenderer.MeasureText(g, ev.Posible ? "¿" + donde + "?" : donde, Tema.Normal, new Size(rTxt.Width, rTxt.Height), corta).Width);
-            g.FillEllipse(p, rTxt.Right - anchoTxt - 16, fila.Top + fila.Height / 2 - 5, 10, 10);
-            var play = new Rectangle(fila.Right - 54, fila.Top + fila.Height / 2 - 16, 32, 32);
-            using (var b = new SolidBrush(ev.Vivo ? Tema.Acento : Tema.Panel2)) g.FillEllipse(b, play);
-            TextRenderer.DrawText(g, "", Tema.IconosPeq, play, ev.Vivo ? Tema.Fondo : Tema.Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-            TextRenderer.DrawText(g, (ev.Posible ? "¿" + donde + "?" : donde), Tema.Normal, new Rectangle(rDer.Left + 16, rDer.Top, rDer.Width - 16 - 58, rDer.Height), colorDonde, corta | TextFormatFlags.Right);
+            g.FillEllipse(p, x, fila.Top + 52, 8, 8);
         }
-        else TextRenderer.DrawText(g, donde, Tema.Pequena, new Rectangle(rDer.Left, rDer.Top, rDer.Width, rDer.Height), colorDonde, corta | TextFormatFlags.Right);
-        // Centro: competición y partido
-        int x = bloque.Right + 14;
-        int ancho = Math.Max(60, rDer.Left - x - 10);
-        TextRenderer.DrawText(g, (ev.Favorito ? "★ " : "") + (ev.Competicion.Length > 0 ? ev.Competicion.ToUpperInvariant() : ev.Deporte.ToUpperInvariant()), Tema.Pequena, new Rectangle(x, fila.Top + 7, ancho, 18), Tema.Tenue, corta);
-        TextRenderer.DrawText(g, ev.Titulo.Replace(" - ", " – "), Tema.Negrita, new Rectangle(x, fila.Top + 26, ancho, 28), ev.Favorito ? Tema.Acento : canal != null ? Tema.Texto : Tema.Tenue, corta);
+        int dx = canal != null ? 14 : 0;
+        TextRenderer.DrawText(g, donde, Tema.Pequena, new Rectangle(x + dx, fila.Top + 46, ancho - dx, 20), canal != null ? Tema.Texto : Tema.Tenue, corta);
     }
 }
 
