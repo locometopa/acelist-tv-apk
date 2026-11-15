@@ -153,7 +153,7 @@ sealed class Ventana : Form
 
     readonly Panel cuerpo = new() { Dock = DockStyle.Fill, BackColor = Principal };
     readonly Panel inicio = new() { Dock = DockStyle.Fill, BackColor = Principal, AutoScroll = true, Visible = false };
-    readonly Panel ficha = new() { Dock = DockStyle.Right, Width = 290, BackColor = Principal, Visible = false };
+    readonly Panel ficha = new() { Dock = DockStyle.Bottom, Height = 200, BackColor = Principal, Visible = false };   // ficha del canal, debajo de la lista
     readonly Button fichaVer = new(), fichaFav = new(), fichaTele = new(), fichaGrabar = new();
     readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
     readonly Label rutaCarpeta = new() { Dock = DockStyle.Top, Height = 40, Visible = false, Font = Tema.Negrita, ForeColor = Texto, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(4, 0, 0, 0) };
@@ -186,7 +186,7 @@ sealed class Ventana : Form
     void ColocarLateral()
     {
         lateral.Visible = EsVideo && !completa && !ampliado && !soloVideo && (!ajustes.ListaOculta || listaForzada);
-        ficha.Visible = EsVideo && !completa && !ampliado && cuerpo.ClientSize.Width >= (lateral.Visible ? 1000 : 700);
+        ficha.Visible = lateral.Visible && seccion != Seccion.Carpetas;
         if (bAmpliar != null)
         {
             bool grande = !lateral.Visible && !ficha.Visible;
@@ -315,6 +315,7 @@ sealed class Ventana : Form
         lateral.Controls.Add(Hueco(8));
         lateral.Controls.Add(pestanas);
         lateral.Controls.Add(rutaCarpeta);
+        lateral.Controls.Add(ficha);
 
         // ----- cabecera: logo, buscador y estado del servidor -----
         var logo = new Panel { BackColor = Acento, Left = 18, Top = 16, Width = 18, Height = 18 };
@@ -398,7 +399,6 @@ sealed class Ventana : Form
         cuerpo.Controls.Add(inicio);
         cuerpo.Controls.Add(vistaAgenda);
         cuerpo.Controls.Add(lateral);
-        cuerpo.Controls.Add(ficha);
         MontarFicha();
         cuerpo.Resize += (_, _) => ColocarLateral();
         lista.SelectedIndexChanged += (_, _) => { ficha.Invalidate(); PonerBotonesFicha(); };
@@ -649,7 +649,7 @@ sealed class Ventana : Form
         Nativo.Oscurecer(this);
     }
 
-    // ---------- ficha del canal (derecha de Canales y Favoritos) ----------
+    // ---------- ficha del canal (debajo de la lista de Canales y Favoritos) ----------
     readonly List<Rectangle> sitiosEnlaces = new();   // dónde se ha pintado cada enlace en la ficha (para elegirlo con el ratón)
     int enlaceEncima = -1;
     Canal? CanalFicha() => lista.SelectedItem as Canal ?? (lista.SelectedItem is Evento e ? CanalDe(e) : null) ?? actual;
@@ -659,12 +659,12 @@ sealed class Ventana : Form
         foreach (var b in new[] { fichaVer, fichaFav, fichaTele, fichaGrabar })
         {
             b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderSize = 0; b.Height = 38; b.TabStop = false; b.Cursor = Cursors.Hand;
-            b.BackColor = Panel2; b.ForeColor = Texto; b.Font = Tema.Normal;
+            b.BackColor = Panel2; b.ForeColor = Texto; b.Font = Tema.Pequena;
             ficha.Controls.Add(b);
         }
-        fichaVer.BackColor = Acento; fichaVer.ForeColor = Fondo; fichaVer.Font = Tema.Negrita; fichaVer.Text = "▶  Ver ahora";
-        fichaTele.Text = "Enviar a la tele";
-        fichaGrabar.Text = "⏺  Grabar…";
+        fichaVer.BackColor = Acento; fichaVer.ForeColor = Fondo; fichaVer.Text = "▶ Ver";
+        fichaTele.Text = "A la tele";
+        fichaGrabar.Text = "⏺ Grabar";
         fichaGrabar.Click += (_, _) => MenuGrabarCanal(fichaGrabar);
         fichaVer.Click += (_, _) => { if (CanalFicha() is { } c) Poner(c); };
         fichaFav.Click += async (_, _) => { if (CanalFicha() is { } c) { await CambiarFavorito(c); PonerBotonesFicha(); ficha.Invalidate(); } };
@@ -703,17 +703,16 @@ sealed class Ventana : Form
 
     void PonerBotonesFicha()
     {
-        int W = ficha.ClientSize.Width - 36, y = ficha.ClientSize.Height - 18 - 38;
-        fichaFav.SetBounds(18, y, (W - 8) / 2, 38);
-        fichaTele.SetBounds(18 + (W - 8) / 2 + 8, y, (W - 8) / 2, 38);
-        fichaGrabar.SetBounds(18, y - 46, W, 38);
-        fichaVer.SetBounds(18, y - 92, W, 38);
+        // Una fila de cuatro botones al pie de la ficha
+        int W = ficha.ClientSize.Width, y = ficha.ClientSize.Height - 40, ancho = (W - 3 * 6) / 4;
+        var bs = new[] { fichaVer, fichaGrabar, fichaFav, fichaTele };
+        for (int i = 0; i < bs.Length; i++) bs[i].SetBounds(i * (ancho + 6), y, ancho, 36);
         var c = CanalFicha();
-        foreach (var b in new[] { fichaVer, fichaFav, fichaTele, fichaGrabar }) b.Visible = c != null;
+        foreach (var b in bs) b.Visible = c != null;
         if (c != null)
         {
-            fichaFav.Text = c.Favorito ? "★  Favorito" : "☆  Favorito";
-            fichaVer.Text = actual != null && actual.Clave == c.Clave ? "↻  Volver a abrir" : "▶  Ver ahora";
+            fichaFav.Text = c.Favorito ? "★ Favorito" : "☆ Favorito";
+            fichaVer.Text = actual != null && actual.Clave == c.Clave ? "↻ Reabrir" : "▶ Ver";
         }
     }
 
@@ -722,79 +721,40 @@ sealed class Ventana : Form
         var g = e.Graphics;
         g.Clear(Principal);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using (var l = new Pen(Tema.Linea)) g.DrawLine(l, 0, 0, 0, ficha.Height);
+        using (var l = new Pen(Tema.Linea)) g.DrawLine(l, 0, 2, ficha.Width, 2);
         const TextFormatFlags corta = TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter;
-        const TextFormatFlags varias = TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
-        int W = ficha.ClientSize.Width - 36, x = 18, y = 20;
+        int W = ficha.ClientSize.Width, y = 10;
         var c = CanalFicha();
         sitiosEnlaces.Clear();
-        if (c == null)
-        {
-            TextRenderer.DrawText(g, "Elige un canal de la lista para ver aquí su estado, qué echan y sus enlaces.", Tema.Normal, new Rectangle(x, y, W, 80), Tenue, varias);
-            return;
-        }
-        // Cabecera: iniciales, nombre y categoría
-        var logo = new Rectangle(x, y, 48, 48);
-        using (var f = Tema.Redondeado(logo, 8)) using (var b = new SolidBrush(Panel2)) g.FillPath(b, f);
-        string ini = new string(c.Titulo.Where(char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
-        TextRenderer.DrawText(g, ini.Length > 0 ? ini : "TV", Tema.Negrita, logo, Acento, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(g, c.Titulo, Tema.Negrita, new Rectangle(x + 60, y + 2, W - 60, 24), Texto, corta);
-        TextRenderer.DrawText(g, c.Categoria.Length > 0 ? c.Categoria : "Sin categoría", Tema.Pequena, new Rectangle(x + 60, y + 28, W - 60, 18), Tenue, corta);
-        y += 66;
-        // Estado
+        if (c == null) { TextRenderer.DrawText(g, "Elige un canal de la lista.", Tema.Normal, new Rectangle(0, y, W, 22), Tenue, corta); return; }
+        // Nombre y estado
+        TextRenderer.DrawText(g, c.Titulo, Tema.Negrita, new Rectangle(0, y, W, 24), Texto, corta);
+        y += 26;
         Color punto = c.EsTv || c.Vivo ? Color.FromArgb(90, 200, 120) : c.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : c.Estado == "mal" ? Color.FromArgb(229, 72, 77) : Color.FromArgb(150, 150, 150);
         string est = c.EsTv ? "En abierto" : c.Vivo ? $"Vivo{(c.Peers > 0 ? $" · {c.Peers} peers" : "")}" : c.Estado == "no_peers" ? "Sin peers" : c.Estado == "mal" ? "Caído" : "Sin comprobar";
         if (actual != null && actual.Clave == c.Clave) est += " · viéndolo";
-        using (var p = new SolidBrush(punto)) g.FillEllipse(p, x, y + 6, 9, 9);
-        TextRenderer.DrawText(g, est, Tema.Normal, new Rectangle(x + 16, y, W - 16, 22), Texto, corta);
-        y += 34;
-        // Ahora (con barra de progreso si es un evento de la agenda en directo)
-        if (!string.IsNullOrWhiteSpace(c.Ahora))
+        if (!string.IsNullOrEmpty(c.Categoria)) est = c.Categoria + " · " + est;
+        using (var p = new SolidBrush(punto)) g.FillEllipse(p, 0, y + 5, 9, 9);
+        TextRenderer.DrawText(g, est, Tema.Pequena, new Rectangle(15, y, W - 15, 20), Tenue, corta);
+        y += 22;
+        if (!string.IsNullOrWhiteSpace(c.Ahora)) { TextRenderer.DrawText(g, "Ahora: " + c.Ahora, Tema.Pequena, new Rectangle(0, y, W, 20), Directo, corta); y += 22; }
+        // Enlaces como fichas pequeñas (clic para cambiar); hasta dos filas
+        int x = 0, filas = 1, tope = ficha.ClientSize.Height - 48;
+        for (int i = 0; i < c.Enlaces.Count; i++)
         {
-            var caja = new Rectangle(x, y, W, 86);
-            using (var f = Tema.Redondeado(caja, 8)) using (var b = new SolidBrush(Panel1)) g.FillPath(b, f);
-            TextRenderer.DrawText(g, "AHORA", Tema.Pequena, new Rectangle(x + 12, y + 10, W - 24, 16), Tenue, corta);
-            TextRenderer.DrawText(g, c.Ahora!, Tema.Negrita, new Rectangle(x + 12, y + 28, W - 24, 40), Texto, varias);
-            var ev = agenda.FirstOrDefault(a => a.Vivo && !a.Aplazado && a.Claves.Contains(c.Clave));
-            if (ev != null)
-            {
-                double prog = Math.Clamp((DateTime.Now - ev.Inicio).TotalMinutes / 120.0, 0.02, 1);
-                using (var b = new SolidBrush(Tema.Linea)) g.FillRectangle(b, x + 12, y + 72, W - 24, 4);
-                using (var b = new SolidBrush(Acento)) g.FillRectangle(b, x + 12, y + 72, (int)((W - 24) * prog), 4);
-            }
-            y += 98;
-        }
-        if (!string.IsNullOrWhiteSpace(c.Luego))
-        {
-            TextRenderer.DrawText(g, "DESPUÉS", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
-            TextRenderer.DrawText(g, c.Luego!, Tema.Normal, new Rectangle(x, y + 20, W, 40), Texto, varias);
-            y += 66;
-        }
-        // Enlaces
-        int tope = ficha.ClientSize.Height - 18 - 38 - 92 - 16;
-        if (c.Enlaces.Count > 0 && y + 40 < tope)
-        {
-            TextRenderer.DrawText(g, c.Enlaces.Count == 1 ? "ENLACE" : $"ENLACES ({c.Enlaces.Count}) · clic para cambiar", Tema.Pequena, new Rectangle(x, y, W, 16), Tenue, corta);
-            y += 22;
-            for (int i = 0; i < c.Enlaces.Count && y + 26 < tope; i++)
-            {
-                var en = c.Enlaces[i];
-                bool puesto = actual != null && actual.Clave == c.Clave && enlace == i;
-                var fila = new Rectangle(x - 8, y - 3, W + 16, 26);
-                sitiosEnlaces.Add(fila);
-                if (i == enlaceEncima || puesto)
-                {
-                    using var f = Tema.Redondeado(fila, 6);
-                    using var b = new SolidBrush(i == enlaceEncima ? Panel2 : Panel1);
-                    g.FillPath(b, f);
-                }
-                Color pe = en.Url != null || en.Estado == "alive" ? Color.FromArgb(90, 200, 120) : en.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : en.Estado.Length == 0 ? Color.FromArgb(150, 150, 150) : Color.FromArgb(229, 72, 77);
-                using (var p = new SolidBrush(pe)) g.FillEllipse(p, x, y + 6, 8, 8);
-                string txt = $"{(puesto ? "▶ " : "")}Enlace {i + 1}{(en.Url != null ? " · TV" : en.Peers > 0 ? $" · {en.Peers} peers" : en.Estado == "no_peers" ? " · sin peers" : "")}";
-                TextRenderer.DrawText(g, txt, Tema.Normal, new Rectangle(x + 16, y, W - 16, 20), puesto ? Acento : Texto, corta);
-                if (i == enlaceEncima && !puesto) TextRenderer.DrawText(g, "▶ Ver", Tema.Pequena, new Rectangle(x, y, W, 20), Acento, corta | TextFormatFlags.Right);
-                y += 28;
-            }
+            var en = c.Enlaces[i];
+            bool puesto = actual != null && actual.Clave == c.Clave && enlace == i;
+            string txt = $"{(puesto ? "▶ " : "")}{i + 1}{(en.Url != null ? " · TV" : en.Peers > 0 ? $" · {en.Peers}p" : en.Estado == "no_peers" ? " · 0p" : "")}";
+            int ancho = TextRenderer.MeasureText(g, txt, Tema.Pequena, new Size(200, 20), TextFormatFlags.NoPadding).Width + 30;
+            if (x > 0 && x + ancho > W) { x = 0; y += 30; filas++; }
+            if (y + 26 > tope) break;
+            var r = new Rectangle(x, y, ancho, 26);
+            sitiosEnlaces.Add(r);
+            using (var f = Tema.Redondeado(r, 13)) using (var b = new SolidBrush(i == enlaceEncima ? Panel2 : puesto ? Color.FromArgb(55, 70, 25) : Panel1)) g.FillPath(b, f);
+            Color pe = en.Url != null || en.Estado == "alive" ? Color.FromArgb(90, 200, 120) : en.Estado == "no_peers" ? Color.FromArgb(230, 190, 70) : en.Estado.Length == 0 ? Color.FromArgb(150, 150, 150) : Color.FromArgb(229, 72, 77);
+            using (var p = new SolidBrush(pe)) g.FillEllipse(p, x + 10, y + 9, 8, 8);
+            TextRenderer.DrawText(g, txt, Tema.Pequena, new Rectangle(x + 22, y, ancho - 24, 26), puesto ? Acento : Texto, corta);
+            x += ancho + 6;
         }
     }
 

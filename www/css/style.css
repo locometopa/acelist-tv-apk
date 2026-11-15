@@ -819,9 +819,10 @@ html.webpc .playerlayer.controles, html.webpc .playerlayer.pausa, html.webpc .pl
 /* Destacados del día */
 .destacados h2 { margin-bottom: .6rem; }
 .dest-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
-.destacados.n2 .dest-grid { grid-template-columns: repeat(2, 1fr); }
-.destacados.n3 .dest-grid { grid-template-columns: repeat(3, 1fr); }
-.destacados.n4 .dest-grid { grid-template-columns: repeat(4, 1fr); }
+.destacados.n2 .dest-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dest-grid > * { min-width: 0; }
+.destacados.n3 .dest-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.destacados.n4 .dest-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .destacados.n1 .dest-grid { grid-template-columns: minmax(0, 24rem); }
 .dest { display: flex; flex-direction: column; justify-content: space-between; gap: .7rem; min-height: 9.5rem; padding: 1rem 1.1rem; border: 0; border-radius: 1rem; background: var(--panel); color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
 .dest.vivo { box-shadow: inset 0 0 0 2px rgba(229, 72, 77, .55); }
@@ -883,3 +884,7 @@ html.movil .selags::-webkit-scrollbar { display: none; }
 .carp-fila .carp-ico { font-size: 1.5rem; }
 .carp-fila .l-tit { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 html.movil .carp-cab .sec-tit { font-size: 1.15rem; }
+
+/* Nada se puede desplazar en horizontal la página entera (al mover el foco se veía cortada por un lado) */
+html { overflow-x: hidden; }
+@supports (overflow: clip) { html, body, #main { overflow-x: clip; } }
