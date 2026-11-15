@@ -1,14 +1,14 @@
 import { Engine, EngineUnavailableError, parseContentId } from './engine.js';
 import { Store, STATUS, statusOf, lastCheck, limpiarTitulo, defaultSettings, claveCat } from './store.js';
 import { parseText, toM3U } from './importer.js';
-import { installNav, focusFirst, focusEl, activeLayer, modoTactil } from './nav.js';
+import { installNav, focusFirst, focusEl, activeLayer, modoTactil, ponerHtml, enCalma } from './nav.js';
 import { Player } from './player.js';
 import { Puente, newToken } from './puente.js';
 import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.64.0';
+const VERSION = '0.65.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -272,6 +272,7 @@ function viaVpn(url) {
 
 // Dirección HTTP del canal en el motor, para reproductores externos como VLC.
 function streamUrl(c) {
+  if (c.archivo) return c.url;
   if (c.url) return viaVpn(c.url);
   const base = NATIVE ? motorUrl() : 'http://127.0.0.1:6878';
   return `${base.replace(/\/+$/, '')}/ace/getstream?id=${c.id}`;
@@ -382,13 +383,13 @@ function activarLista(id) {
 
 async function openWith(app, c, list) {
   if (!c) return;
-  apuntarVisto(c);
+  if (!c.archivo) apuntarVisto(c);
   if (c.url && (app === 'aceplayer' || app === 'aceserve')) app = 'interno';
   if (app === 'interno') {
     if (!NATIVE) return play(c, list);
     // En la tele: reproductor nativo (ExoPlayer), con zapping por la misma lista
     const mapa = mapaEnlaces();
-    const item = (x) => ({
+    const item = (x) => (x.archivo ? { id: x.id, title: x.title, url: x.url, enlaces: JSON.stringify([{ id: x.id, url: x.url }]) } : {
       id: x.id, title: x.title, url: viaVpn(x.url || ''),
       enlaces: JSON.stringify(enlacesDe(x, mapa).map((e) => ({ ...e, url: viaVpn(e.url) }))),
     });
@@ -816,12 +817,12 @@ function render() {
   const fuentesVis = listasConCanales();
   const txtListas = !ui.listas.size ? 'Todas'
     : ui.listas.size === 1 ? esc(ui.listas.has('-') ? 'Sin lista' : (store.source([...ui.listas][0])?.name || '1 lista')) : `${ui.listas.size} listas`;
-  $('#filters').innerHTML =
+  ponerHtml($('#filters'),
     sel('ver', 'Mostrar', `${esc(FILTROS[ui.filter])} <small>${counts[ui.filter]}</small>`, ui.filter !== 'all' ? ' on' : '')
     + (fuentesVis.length > 1 || ui.listas.size ? sel('listas', 'Listas', txtListas, ui.listas.size ? ' on' : '') : '')
     + sel('cat', 'Categoría', ui.category ? `${esc(ui.category)} <small>${nCat}</small>` : 'Todas', ui.category ? ' on' : '')
     + sel('orden', 'Orden', esc(ORDENES[store.settings.orden || 'recomendado']))
-    + (ui.search ? `<button class="sel on" data-key="clear-search" id="clear-search"><span>Buscando</span><b>«${esc(ui.search)}» ✕</b></button>` : '');
+    + (ui.search ? `<button class="sel on" data-key="clear-search" id="clear-search"><span>Buscando</span><b>«${esc(ui.search)}» ✕</b></button>` : ''));
 
   // En directo ahora
   const dHtml = directoHtml();
@@ -841,18 +842,18 @@ function render() {
   const list = visibleChannels();
   const grid = $('#grid');
   if (!store.channels.length) {
-    grid.innerHTML = `
+    ponerHtml(grid, `
       <div class="empty">
         <h2>Aún no hay canales</h2>
         <p>Importa la exportación de AceList (JSON), una lista M3U o enlaces acestream://.</p>
         <button class="btn primary" data-key="empty-import" id="empty-import">Importar canales</button>
-      </div>`;
+      </div>`);
   } else if (!list.length && ui.filter === 'fav' && !ui.search && !ui.category && !ui.listas.size) {
-    grid.innerHTML = `<div class="empty"><h2>Aún no tienes favoritos</h2>
-      <p>En cualquier canal, mantén pulsado OK para añadirlo (o pulsa ⋮ y elige «☆ Añadir a favoritos»).<br>Aquí los tendrás juntos, y en el reproductor ▲▼ irá solo por ellos.</p></div>`;
+    ponerHtml(grid, `<div class="empty"><h2>Aún no tienes favoritos</h2>
+      <p>En cualquier canal, mantén pulsado OK para añadirlo (o pulsa ⋮ y elige «☆ Añadir a favoritos»).<br>Aquí los tendrás juntos, y en el reproductor ▲▼ irá solo por ellos.</p></div>`);
   } else if (!list.length) {
-    grid.innerHTML = '<div class="empty"><p>Ningún canal coincide con el filtro.</p></div>'
-      + (ui.search ? `<button class="btn ver-mas" data-key="buscar-web" id="buscar-web">Buscar «${esc(ui.search)}» en tus listas de internet…</button>` : '');
+    ponerHtml(grid, '<div class="empty"><p>Ningún canal coincide con el filtro.</p></div>'
+      + (ui.search ? `<button class="btn ver-mas" data-key="buscar-web" id="buscar-web">Buscar «${esc(ui.search)}» en tus listas de internet…</button>` : ''));
   } else {
     const asList = store.settings.view !== 'grid';
     // Con muchos canales solo se pintan los primeros (la tele va más fluida); «Ver más» añade otros tantos
@@ -872,8 +873,8 @@ function render() {
       filas = conCabeceras(list.slice(0, ui.limite), (c) => (asList ? rowHtml(c) : cardHtml(c)));
     }
     const quedan = total - ui.limite;
-    grid.innerHTML = filas + (quedan > 0 ? `<button class="btn ver-mas" data-key="ver-mas" id="ver-mas">Ver ${Math.min(quedan, LIMITE_FILAS)} más · quedan ${quedan}</button>` : '')
-      + (ui.search ? `<button class="btn ver-mas" data-key="buscar-web" id="buscar-web">Buscar «${esc(ui.search)}» en tus listas de internet…</button>` : '');
+    ponerHtml(grid, filas + (quedan > 0 ? `<button class="btn ver-mas" data-key="ver-mas" id="ver-mas">Ver ${Math.min(quedan, LIMITE_FILAS)} más · quedan ${quedan}</button>` : '')
+      + (ui.search ? `<button class="btn ver-mas" data-key="buscar-web" id="buscar-web">Buscar «${esc(ui.search)}» en tus listas de internet…</button>` : ''));
   }
   grid.className = store.settings.view === 'grid' ? 'grid' : 'list';
   const nGrupos = store.settings.agrupar !== false ? agrupar(list).length : list.length;
@@ -2151,7 +2152,7 @@ function playerKeys(e) {
 function repintarCambio() {
   if ($('#playerlayer').classList.contains('open')) { ui.repintarAlSalir = true; return; }
   if (ui.tRepintar) return;   // ya hay un repintado en camino: recogerá este cambio también
-  ui.tRepintar = setTimeout(() => { ui.tRepintar = null; if ($('#playerlayer').classList.contains('open')) ui.repintarAlSalir = true; else render(); }, 80);
+  ui.tRepintar = setTimeout(() => { ui.tRepintar = null; if ($('#playerlayer').classList.contains('open')) ui.repintarAlSalir = true; else enCalma('canales', render); }, 80);
 }
 
 function closePlayer() {
@@ -2551,7 +2552,6 @@ const SETTING_ROWS = [
   { key: 'intro', label: 'Vídeo de entrada al abrir la app', values: () => [true, false], show: (v) => (v !== false ? 'Sí' : 'No') },
   { key: 'filasCategorias', label: 'Filas por categoría en Inicio', values: () => [true, false], show: (v) => (v !== false ? 'Sí' : 'No') },
   { key: 'destacados', label: 'Eventos destacados del día en Inicio', values: () => [3, 2, 4, 0], show: (v) => (v ? `${v} cuadrados` : 'No') },
-  { key: 'inicioLista', label: 'Inicio en modo lista (más limpio)', values: () => [false, true], show: (v) => (v ? 'Sí' : 'No') },
   { key: 'formatoStream', label: 'Formato de Ace Stream (reproductor interno)', values: () => ['ts', 'hls'],
     show: (v) => (v === 'hls' ? 'HLS troceado (si se congela la imagen)' : 'Normal (TS)') },
   { key: 'okAction', label: MOVIL ? 'Al tocar un canal' : NATIVE ? 'Al pulsar OK en un canal' : 'Al hacer clic en un canal', values: () => ['ficha', 'reproducir'], show: (v) => (v === 'reproducir' ? 'Reproducir' : 'Abrir su ficha') },
@@ -3356,18 +3356,14 @@ function renderHomeLista() {
   ui.destacado = null;
   const bloque = (titulo, filas, vacio) => `<section class="lista-bloque" aria-label="${esc(titulo)}"><h2>${esc(titulo)} <small>${filas.filter((f) => !f.startsWith('<h3')).length}</small></h2>${filas.length ? filas.join('') : `<p class="muted l-vacio">${esc(vacio)}</p>`}</section>`;
   const vistos = vistosRecientes().slice(0, 15).map((x) => lineaCanal(x.c));
-  sec.innerHTML = (MOVIL ? '' : `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo" data-autofocus>▦ Ver en tarjetas</button></div>`)
-    + bloqueDestacados()
+  ponerHtml(sec, bloqueDestacados()
     + bloqueAgenda()
-    + bloque('Vistos recientemente', vistos, 'Aún no has visto ningún canal');
-  if (ui.section === 'inicio' && (wasIn || document.activeElement === document.body)) {
-    const el = (prevKey && sec.querySelector(`[data-hkey="${CSS.escape(prevKey)}"]`)) || sec.querySelector('[data-autofocus]');
-    if (el) el.focus({ preventScroll: true });
-  }
+    + bloque('Vistos recientemente', vistos, 'Aún no has visto ningún canal'));
+  if (ui.section === 'inicio' && !wasIn && prevKey == null && document.activeElement === document.body) focusFirst(sec);
 }
 
 function renderHome() {
-  if (store.settings.inicioLista || MOVIL) return renderHomeLista();   // en el móvil, siempre en lista
+  if (MOVIL) return renderHomeLista();   // en el móvil, en lista; en la tele y el PC, con tarjetas (una sola vista: sin botón)
   const sec = $('#sec-inicio');
   const prev = document.activeElement;
   const prevKey = prev?.dataset?.hkey;
@@ -3435,15 +3431,87 @@ function renderHome() {
   const fila = (titulo, html) => (html ? `<section class="fila" aria-label="${esc(titulo)}"><h2>${esc(titulo)}</h2><div class="fila-scroll">${html}</div></section>` : '');
   const vistos = vistosRecientes().slice(0, 12);
   const bloqueDest = bloqueDestacados(destId);
-  sec.innerHTML = `<div class="lista-cab"><button class="hbtn" data-hkey="h:modo" data-h="modo">☰ Ver en lista</button></div>` + hero + bloqueDest
+  ponerHtml(sec, hero + bloqueDest
     + bloqueAgenda()
     + fila('Vistos recientemente', vistos.map((x) => tarjetaCanal(x.c, 'v')).join(''))
     + fila(favs.length ? 'Tus favoritos' : 'Canales vivos', canales.map(tarjetaCanal).join(''))
-    + filasPorCategoria().map((g, i) => fila(g.cat, g.canales.map((c) => tarjetaCanal(c, `k${i}`)).join(''))).join('');
-  if (ui.section === 'inicio' && (wasIn || prev === document.body)) {
-    const el = (prevKey && sec.querySelector(`[data-hkey="${CSS.escape(prevKey)}"]`)) || sec.querySelector('[data-autofocus]');
-    if (el) el.focus({ preventScroll: true });
+    + filasPorCategoria().map((g, i) => fila(g.cat, g.canales.map((c) => tarjetaCanal(c, `k${i}`)).join(''))).join(''));
+  if (ui.section === 'inicio' && !wasIn && prev === document.body) focusFirst(sec);
+}
+
+// ---------- carpetas compartidas (vídeos del servidor o del NAS) ----------
+// Las carpetas se eligen en el panel del servidor; aquí se navega por ellas y los vídeos se ven como un canal
+// (▲▼ en el reproductor pasa al vídeo anterior o siguiente de la misma carpeta).
+const carp = { id: null, nombre: '', sub: '', datos: null, lista: null, error: '', cargando: false, pila: [] };
+const tamano = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
+const fechaCorta = (t) => new Date(t).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit' });
+async function pedirCasa(ruta) {
+  let r;
+  try { r = await fetch(urlCasa(ruta), { cache: 'no-store' }); } catch { throw new Error('No se puede conectar con el servidor de casa'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.error) throw new Error(d.error || `el servidor responde ${r.status}`);
+  return d;
+}
+async function cargarCarpetas() {
+  carp.cargando = true; carp.error = '';
+  try {
+    if (!carp.id) carp.lista = (await pedirCasa('/api/carpetas')).carpetas || [];
+    else carp.datos = await pedirCasa(`/api/carpetas/${encodeURIComponent(carp.id)}/listar?sub=${encodeURIComponent(carp.sub)}`);
+  } catch (e) { carp.error = e.message; }
+  carp.cargando = false;
+}
+function videoComoCanal(v) {
+  return { id: `arch-${carp.id}-${v.sub}`, title: v.nombre, url: urlCasa(v.url), archivo: true, category: carp.nombre };
+}
+async function renderCarpetas(foco = false) {
+  const sec = $('#sec-carpetas');
+  if (!store.settings.servidorCasa) {
+    ponerHtml(sec, `<h1 class="sec-tit">Carpetas</h1><div class="empty"><p>Las carpetas de vídeos están en el servidor de casa. Configúralo en Ajustes → Servidor de casa.</p></div>`);
+    return;
   }
+  if (!carp.lista && !carp.id && !carp.cargando) { ponerHtml(sec, '<h1 class="sec-tit">Carpetas</h1><p class="muted">Cargando…</p>'); await cargarCarpetas(); }
+  const fila = (key, ico, tit, sub, extra = '') => `<button class="linea carp-fila" data-key="cf:${esc(key)}" ${extra}>
+    <span class="l-bloque"><span class="l-ico carp-ico">${ico}</span></span>
+    <span class="l-txt"><span class="l-tit">${esc(tit)}</span><span class="l-comp">${esc(sub)}</span></span></button>`;
+  let html;
+  if (!carp.id) {
+    const l = carp.lista || [];
+    html = `<h1 class="sec-tit">Carpetas</h1>`
+      + (carp.error ? `<p class="bad-text">${esc(carp.error)}</p>` : '')
+      + (l.length ? l.map((c) => fila(c.id, c.fija ? '⏺' : '📁', c.nombre, c.existe ? `${c.elementos} elementos` : 'No disponible ahora', `data-carp="${esc(c.id)}" data-nombre="${esc(c.nombre)}"`)).join('')
+        : '<div class="empty"><p>Aún no hay carpetas. Añádelas en el panel del servidor → Carpetas.</p></div>');
+  } else {
+    const d = carp.datos;
+    const ruta = [carp.nombre, ...carp.sub.split('/').filter(Boolean)].join(' › ');
+    html = `<div class="carp-cab"><button class="hbtn" data-key="cf:atras" data-carp-atras data-autofocus>⬅ Atrás</button><h1 class="sec-tit">${esc(ruta)}</h1></div>`
+      + (carp.error ? `<p class="bad-text">${esc(carp.error)}</p>` : '')
+      + (!d ? '<p class="muted">Cargando…</p>' : (d.carpetas.map((c) => fila(`d:${c.sub}`, '📁', c.nombre, 'Carpeta', `data-carp-sub="${esc(c.sub)}"`)).join('')
+        + d.videos.map((v, i) => fila(`v:${v.sub}`, '▶', v.nombre, `${tamano(v.bytes)} · ${fechaCorta(v.fecha)} · ${v.archivo.split('.').pop().toUpperCase()}`, `data-carp-video="${i}"`)).join('')
+        + (!d.carpetas.length && !d.videos.length ? '<div class="empty"><p>Esta carpeta está vacía.</p></div>' : '')));
+  }
+  ponerHtml(sec, html);
+  if (foco) focusFirst(sec);
+}
+// «Carpetas» solo sale en el menú si hay servidor de casa
+function menuCarpetas() { document.querySelector('.mi[data-section="carpetas"]')?.classList.toggle('oculta', !store.settings.servidorCasa); }
+async function carpetasClick(e) {
+  const c = e.target.closest('[data-carp]');
+  if (c) { carp.pila = []; carp.id = c.dataset.carp; carp.nombre = c.dataset.nombre; carp.sub = ''; carp.datos = null; await renderCarpetas(); await cargarCarpetas(); renderCarpetas(true); return; }
+  const s = e.target.closest('[data-carp-sub]');
+  if (s) { carp.pila.push(carp.sub); carp.sub = s.dataset.carpSub; carp.datos = null; await cargarCarpetas(); renderCarpetas(true); return; }
+  if (e.target.closest('[data-carp-atras]')) { carpetasAtras(); return; }
+  const v = e.target.closest('[data-carp-video]');
+  if (v && carp.datos) {
+    const lista = carp.datos.videos.map(videoComoCanal);
+    openWith(store.settings.player === 'aceplayer' || store.settings.player === 'aceserve' ? 'interno' : store.settings.player, lista[Number(v.dataset.carpVideo)], lista);
+  }
+}
+function carpetasAtras() {
+  if (!carp.id) return false;
+  if (carp.pila.length) carp.sub = carp.pila.pop();
+  else { carp.id = null; carp.datos = null; carp.lista = null; }
+  cargarCarpetas().then(() => renderCarpetas(true));
+  return true;
 }
 
 function homeClick(e) {
@@ -3455,7 +3523,6 @@ function homeClick(e) {
     if (a === 'otros' && d) agenda.abrirEvento(d.ev.id);
     if (a === 'ace' && d) openWith('aceplayer', d.m.canal);
     if (a === 'canal') openWith(store.settings.player, store.find(h.dataset.id), mejoresCanales());
-    if (a === 'modo') { store.setSettings({ inicioLista: !store.settings.inicioLista }); renderHome(); return; }
     if (a === 'agenda') { document.getElementById('agenda-inicio')?.scrollIntoView({ block: 'start' }); focusEl(document.querySelector('#agenda-inicio .chip')); }
     const st = agenda.st;
     const volver = (k) => { renderHome(); focusEl(document.querySelector(`[data-hkey="ag:${k}"]`)); };
@@ -3770,6 +3837,7 @@ function showSection(name, { focus = true } = {}) {
   if (name === 'agenda') agenda.show();
   if (name === 'guia') renderGuia(focus);
   if (name === 'inicio') renderHome();
+  if (name === 'carpetas') renderCarpetas(focus);
   window.scrollTo(0, 0);
   if (focus && name !== 'agenda') {
     const sec = $(`#sec-${name}`);
@@ -3845,6 +3913,7 @@ function back() {
   }
   if (ui.section === 'ajustes' && ui.ajustesAv) { ui.ajustesAv = false; renderSettings(); focusEl($('#sec-ajustes [data-skey="a:avanzado"]') || $('#sec-ajustes .srow')); return; }
   if (ui.section === 'listas' && !MOVIL) { showSection('ajustes', { focus: false }); focusEl($('#sec-ajustes [data-skey="a:listas"]') || document.querySelector('.mi[data-section="ajustes"]')); return; }
+  if (ui.section === 'carpetas' && (!inSide || MOVIL) && carpetasAtras()) return;
   if (!inSide && !MOVIL) {
     // Primero al menú lateral; desde ahí, a Canales; desde Canales, salir
     const item = document.querySelector(`.mi[data-section="${ui.section}"]`);
@@ -3952,6 +4021,8 @@ function wire() {
   $('#sec-ajustes').addEventListener('click', settingClick);
   $('#sec-agenda').addEventListener('click', (e) => agenda.click(e));
   $('#sec-inicio').addEventListener('click', homeClick);
+  $('#sec-carpetas').addEventListener('click', carpetasClick);
+  menuCarpetas();
   $('#sec-listas').addEventListener('click', listasClick);
   $('#search').onclick = openSearch;
   $('#engine').onclick = () => checkEngine(true);
@@ -3982,20 +4053,20 @@ function wire() {
   installNav(back);
   if (NATIVE && plugins.App) plugins.App.addListener('backButton', back);
   store.onChange(() => {
+    menuCarpetas();
     programarCopia();
     programarSincro();
     repintarCambio();
     if (ui.section === 'ajustes') renderSettings();
-    if (ui.section === 'agenda') agenda.refreshView();
-    if (ui.section === 'inicio') renderHome();
-    if (ui.section === 'listas') renderListas();
+    if (ui.section === 'inicio') enCalma('inicio', renderHome);
+    if (ui.section === 'listas') enCalma('listas', renderListas);
   });
 
   const clock = () => { $('#clock').textContent = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }); };
   clock();
   setInterval(clock, 15000);
   // La franja «En directo» y lo que echa cada canal cambian con la hora
-  setInterval(() => { if (ui.section === 'canales' && activeLayer().id === 'app' && !ui.batch) render(); }, 60000);
+  setInterval(() => { if (ui.section === 'canales' && activeLayer().id === 'app' && !ui.batch) enCalma('canales', render); }, 60000);
   setInterval(() => { marcarPartidosFavoritos(); comprobarAntesDePartidos(); avisarRecordatorios(); }, 30000);
   setTimeout(() => { marcarPartidosFavoritos(); resumenDelDia(); }, 4000);
   // Con servidor de casa: vigilar el motor (cambio automático al de la tele y vuelta) y sincronizar las teles
@@ -4027,7 +4098,7 @@ const agendaApp = {
 };
 const agenda = crearAgenda(agendaApp);
 const guia = crearGuia({ fetchText, onCambio: () => { if (ui.section === 'canales') render(); if (ui.section === 'guia') renderGuia(false); } });
-agendaApp.onAgenda = () => { marcarPartidosFavoritos(); setTimeout(resumenDelDia, 3000); if (ui.section === 'inicio') renderHome(); if (ui.section === 'canales') render(); };
+agendaApp.onAgenda = () => { marcarPartidosFavoritos(); setTimeout(resumenDelDia, 3000); if (ui.section === 'inicio') enCalma('inicio', renderHome); if (ui.section === 'canales') enCalma('canales', render); };
 
 wire();
 render();

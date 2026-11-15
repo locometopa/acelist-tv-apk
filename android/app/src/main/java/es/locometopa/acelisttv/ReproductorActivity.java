@@ -206,8 +206,14 @@ public class ReproductorActivity extends Activity {
                     txtEstado.setText("Cargando…");
                     if (yaSonando) { ui.removeCallbacks(vigilante); ui.postDelayed(vigilante, 25000); }
                 }
+                if (estado == Player.STATE_ENDED && esArchivo()) {
+                    // Vídeo de una carpeta terminado: el siguiente de la carpeta
+                    if (ids.size() > 1 && indice < ids.size() - 1) zap(1); else { txtEstado.setText("Fin del vídeo"); mostrarPanel(0); }
+                    return;
+                }
                 if (estado == Player.STATE_READY) {
                     reintentos = 0; vueltas = 0; yaSonando = true; ui.removeCallbacks(vigilante); mostrarPanel(4000);
+                    if (esArchivo()) txtEstado.setText(posicion() + "  ·  ◀▶ 10 s · mantén ◀▶ 1 min · OK pausa");
                     if (!apuntado) { apuntado = true; apuntar(true, null); }
                 }
             }
@@ -470,7 +476,7 @@ public class ReproductorActivity extends Activity {
                 float dy = b.getY() - a.getY();
                 float minimo = 80 * getResources().getDisplayMetrics().density;
                 if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > minimo) { zap(dy < 0 ? 1 : -1); return true; }
-                if (Math.abs(dx) > minimo) { cambiarFuente(dx < 0 ? 1 : -1); return true; }
+                if (Math.abs(dx) > minimo) { if (esArchivo()) saltar(dx > 0 ? 30000 : -30000); else cambiarFuente(dx < 0 ? 1 : -1); return true; }
                 return false;
             }
         });
@@ -499,6 +505,28 @@ public class ReproductorActivity extends Activity {
         if (dc != null) { dc.ensureUpdated(); if (dc.droppedBufferCount > 0) sb.append(" · ").append(dc.droppedBufferCount).append(" fotogramas perdidos"); }
         sb.append("   ·   ").append(esTele ? "Mantén OK: sonido · OK×2 recolocar" : "Mantén pulsado: recolocar");
         return sb.toString();
+    }
+
+    // ¿Es un vídeo de archivo (carpetas del servidor) en vez de un directo? Entonces se puede adelantar y pausar
+    private boolean esArchivo() {
+        return player != null && !player.isCurrentMediaItemLive() && player.isCurrentMediaItemSeekable()
+            && player.getDuration() != C.TIME_UNSET && player.getDuration() > 0;
+    }
+
+    private static String hms(long ms) {
+        long s = Math.max(0, ms / 1000);
+        return s >= 3600 ? String.format(java.util.Locale.ROOT, "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+            : String.format(java.util.Locale.ROOT, "%d:%02d", s / 60, s % 60);
+    }
+
+    private String posicion() { return player == null ? "" : hms(player.getCurrentPosition()) + " / " + hms(player.getDuration()); }
+
+    private void saltar(long ms) {
+        long d = player.getDuration();
+        long p = Math.max(0, Math.min(d - 1000, player.getCurrentPosition() + ms));
+        player.seekTo(p);
+        txtEstado.setText((ms > 0 ? "⏩ " : "⏪ ") + hms(p) + " / " + hms(d));
+        mostrarPanel(2500);
     }
 
     private void alternarFormato() {
@@ -922,16 +950,36 @@ public class ReproductorActivity extends Activity {
                 zap(1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (esArchivo()) { saltar(event.getRepeatCount() > 4 ? -60000 : -10000); return true; }
                 cambiarFuente(-1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (esArchivo()) { saltar(event.getRepeatCount() > 4 ? 60000 : 10000); return true; }
                 cambiarFuente(1);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                if (player != null) { if (player.isPlaying()) player.pause(); else player.play(); mostrarPanel(3000); }
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                if (esArchivo()) saltar(30000);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                if (esArchivo()) saltar(-30000);
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER: {
                 // Mantener OK pulsado: sonido y opciones (muchos mandos no tienen tecla Menú)
                 if (event.getRepeatCount() == 3) { ultimoOk = 0; opcionesSonido(); return true; }
                 if (event.getRepeatCount() > 0) return true;
+                // En un vídeo de carpeta, OK pausa y sigue
+                if (esArchivo()) {
+                    if (player.isPlaying()) player.pause(); else player.play();
+                    txtEstado.setText((player.getPlayWhenReady() ? "▶ " : "❚❚ ") + posicion());
+                    mostrarPanel(player.getPlayWhenReady() ? 3000 : 0);
+                    return true;
+                }
                 long t = System.currentTimeMillis();
                 if (t - ultimoOk < 600) { ultimoOk = 0; recolocar(); } else { ultimoOk = t; mostrarPanel(5000); }
                 return true;

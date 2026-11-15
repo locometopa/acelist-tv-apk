@@ -874,3 +874,12 @@ html.movil .vpn-ops { grid-template-columns: 1fr; }
 .agenda-inicio .ag-filas { margin-top: .9rem; }
 html.movil .selags { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -.85rem; padding-right: .85rem; }
 html.movil .selags::-webkit-scrollbar { display: none; }
+
+/* Carpetas compartidas */
+.mi.oculta { display: none !important; }
+#sec-carpetas .sec-tit { margin: 0 0 1rem; font-size: 1.6rem; }
+.carp-cab { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.carp-cab .sec-tit { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.carp-fila .carp-ico { font-size: 1.5rem; }
+.carp-fila .l-tit { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+html.movil .carp-cab .sec-tit { font-size: 1.15rem; }

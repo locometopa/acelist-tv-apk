@@ -60,6 +60,17 @@ sealed class Canal
     public override string ToString() => Titulo;
 }
 
+// Una carpeta o un vídeo de las carpetas compartidas del servidor
+sealed class ItemCarpeta
+{
+    public string Id = "", Nombre = "", Sub = "", Detalle = "";
+    public string? Url;          // null: es una carpeta
+    public bool Atras;
+    public string Clave => "arch:" + Id + "/" + Sub;
+    public Canal ComoCanal() => new() { Clave = Clave, Titulo = Nombre, Categoria = "Carpetas", Enlaces = { new Enlace { Id = Clave, Titulo = Nombre, Url = Url } } };
+    public override string ToString() => Nombre;
+}
+
 sealed class Evento
 {
     public string Id = "";
@@ -135,6 +146,7 @@ sealed class Ventana : Form
     readonly BotonRiel rHoy = new("\uE80F", "Hoy");
     readonly BotonRiel rCanales = new("\uE7F4", "Canales");
     readonly BotonRiel rFavoritos = new("\uE734", "Favoritos");
+    readonly BotonRiel rCarpetas = new("\uE8B7", "Carpetas");
     readonly BotonRiel rLista = new("\uE8FD", "Lista");   // esconde o enseña la lista de canales
     readonly BotonRiel rVpn = new("\uEA18", "VPN");
     readonly BotonRiel rAjustes = new("\uE713", "Ajustes");
@@ -144,6 +156,7 @@ sealed class Ventana : Form
     readonly Panel ficha = new() { Dock = DockStyle.Right, Width = 290, BackColor = Principal, Visible = false };
     readonly Button fichaVer = new(), fichaFav = new(), fichaTele = new(), fichaGrabar = new();
     readonly Panel lateral = new() { Dock = DockStyle.Left, Width = 380, BackColor = Principal, Padding = new Padding(10) };
+    readonly Label rutaCarpeta = new() { Dock = DockStyle.Top, Height = 40, Visible = false, Font = Tema.Negrita, ForeColor = Texto, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Padding = new Padding(4, 0, 0, 0) };
     readonly TableLayoutPanel pestanas = new() { Dock = DockStyle.Top, Height = 38, ColumnCount = 2, RowCount = 1 };
     readonly Button pestCanales, pestAgenda;
     readonly Button bAmpliar, bAudio;
@@ -164,11 +177,11 @@ sealed class Ventana : Form
     readonly TrackBar volumen = new() { Dock = DockStyle.Right, Width = 130, Minimum = 0, Maximum = 100, TickStyle = TickStyle.None, AutoSize = false, Height = 30 };
     readonly FlowLayoutPanel botonesBarra = new() { Dock = DockStyle.Right, Width = 380, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
 
-    enum Seccion { Hoy, Agenda, Canales, Favoritos }
+    enum Seccion { Hoy, Agenda, Canales, Favoritos, Carpetas }
     VistaAgenda vistaAgenda = null!;
     bool soloVideo;        // se está viendo un canal que se ha puesto desde Hoy o Agenda: la lista de canales no se abre sola
     bool listaForzada;     // se está buscando con la lista escondida: se enseña mientras se busca, sin cambiar el ajuste
-    bool EsVideo => seccion == Seccion.Canales || seccion == Seccion.Favoritos;
+    bool EsVideo => seccion == Seccion.Canales || seccion == Seccion.Favoritos || seccion == Seccion.Carpetas;
     void ParaBuscar() { if (ajustes.ListaOculta) { listaForzada = true; ColocarLateral(); ActualizarRiel(); } }
     void ColocarLateral()
     {
@@ -301,6 +314,7 @@ sealed class Ventana : Form
         lateral.Controls.Add(categorias);
         lateral.Controls.Add(Hueco(8));
         lateral.Controls.Add(pestanas);
+        lateral.Controls.Add(rutaCarpeta);
 
         // ----- cabecera: logo, buscador y estado del servidor -----
         var logo = new Panel { BackColor = Acento, Left = 18, Top = 16, Width = 18, Height = 18 };
@@ -332,9 +346,10 @@ sealed class Ventana : Form
         rHoy.Left = 6; rHoy.Top = 8;
         rCanales.Left = 6; rCanales.Top = 58;
         rFavoritos.Left = 6; rFavoritos.Top = 108;
-        rLista.Left = 6; rLista.Top = 172;
+        rCarpetas.Left = 6; rCarpetas.Top = 158;
+        rLista.Left = 6; rLista.Top = 222;
         rVpn.Left = 6; rAjustes.Left = 6;
-        foreach (var r in new[] { rHoy, rCanales, rFavoritos, rLista, rVpn, rAjustes }) riel.Controls.Add(r);
+        foreach (var r in new[] { rHoy, rCanales, rFavoritos, rCarpetas, rLista, rVpn, rAjustes }) riel.Controls.Add(r);
         riel.Resize += (_, _) => { rAjustes.Top = Math.Max(280, riel.ClientSize.Height - 54); rVpn.Top = rAjustes.Top - 50; };
         rHoy.Click += (_, _) => Ir(Seccion.Hoy);
         rCanales.Click += (_, _) => Ir(Seccion.Canales);
@@ -345,6 +360,8 @@ sealed class Ventana : Form
         ayudas.SetToolTip(rHoy, "Hoy: destacados y la agenda día a día (tecla H)");
         ayudas.SetToolTip(rCanales, "Todos tus canales");
         ayudas.SetToolTip(rFavoritos, "Tus canales favoritos");
+        ayudas.SetToolTip(rCarpetas, "Carpetas de vídeos del servidor o del NAS");
+        rCarpetas.Click += (_, _) => Ir(Seccion.Carpetas);
         ayudas.SetToolTip(rLista, "Ocultar o mostrar la lista de canales para dejar más sitio al vídeo (tecla L)");
         ayudas.SetToolTip(rAjustes, "Ajustes: servidor, reproducción, interfaz y listas");
         riel.Padding = new Padding(0);
@@ -430,6 +447,7 @@ sealed class Ventana : Form
         };
         lista.DrawItem += PintarFila;
         lista.DoubleClick += (_, _) => { if (lista.SelectedItem is not Evento) ReproducirSeleccionado(); };
+        lista.KeyDown += (_, e) => { if (seccion == Seccion.Carpetas && e.KeyCode == Keys.Back) { e.Handled = true; CarpetaAtras(); } };
         lista.MouseUp += (_, e) =>
         {
             if (e.Button != MouseButtons.Left || !enAgenda) return;
@@ -473,7 +491,17 @@ sealed class Ventana : Form
             else { enParon = false; if (reproductor.IsPlaying) Estado(TextoSonando()); }
         });
         reproductor.EncounteredError += (_, _) => EnVentana(() => Corte("No se puede abrir"));
-        reproductor.EndReached += (_, _) => EnVentana(() => Corte("Se ha cortado"));
+        reproductor.EndReached += (_, _) => EnVentana(() =>
+        {
+            // Un vídeo de carpeta que termina pasa al siguiente; un directo que «termina» es un corte
+            if (actual != null && actual.Clave.StartsWith("arch:"))
+            {
+                int i = vistaCanales.FindIndex(c => c.Clave == actual.Clave);
+                if (i >= 0 && i < vistaCanales.Count - 1) Zapear(1); else Estado("Fin del vídeo");
+                return;
+            }
+            Corte("Se ha cortado");
+        });
 
         PonerPestana(false);
         Ir(Seccion.Hoy);
@@ -589,6 +617,14 @@ sealed class Ventana : Form
                 string detalle = c.EsTv ? "TV" : c.Estado switch { "alive" => $"vivo · {c.Peers} peers", "no_peers" => "sin peers", "" => "sin comprobar", _ => "no funciona" };
                 TextRenderer.DrawText(e.Graphics, (c.Apagada ? "lista apagada · " : "") + (string.IsNullOrEmpty(c.Categoria) ? detalle : $"{c.Categoria} · {detalle}"), pequena, r2, Tenue, corta);
             }
+        }
+        else if (lista.Items[e.Index] is ItemCarpeta ic)
+        {
+            bool sonando = ic.Url != null && actual != null && actual.Clave == ic.Clave;
+            if (sonando) { using var a = new SolidBrush(Acento); e.Graphics.FillRectangle(a, e.Bounds.Left, e.Bounds.Top + 4, 3, e.Bounds.Height - 8); }
+            TextRenderer.DrawText(e.Graphics, ic.Atras ? "\uE72B" : ic.Url == null ? "\uE8B7" : "\uE768", Tema.IconosPeq, new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, 26, e.Bounds.Height), ic.Url == null ? Acento : Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, ic.Nombre, Font, r1, sonando ? Acento : Texto, corta);
+            TextRenderer.DrawText(e.Graphics, ic.Detalle, pequena, r2, Tenue, corta);
         }
         else if (lista.Items[e.Index] is Evento ev)
         {
@@ -768,12 +804,16 @@ sealed class Ventana : Form
         seccion = s;
         soloVideo = false;
         listaForzada = false;
-        bool video_ = s == Seccion.Canales || s == Seccion.Favoritos;
+        bool video_ = s == Seccion.Canales || s == Seccion.Favoritos || s == Seccion.Carpetas;
+        bool enCarpetas = s == Seccion.Carpetas;
+        foreach (var c in new Control[] { categorias, filtro, pestanas }) c.Visible = !enCarpetas;
+        rutaCarpeta.Visible = enCarpetas;
         inicio.Visible = false;
         vistaAgenda.Visible = s == Seccion.Hoy;
         video.Visible = video_;
         ColocarLateral();
-        if (video_)
+        if (enCarpetas) { _ = CargarCarpeta(carpId, carpSub); lista.Focus(); }
+        else if (video_)
         {
             if (s == Seccion.Favoritos)
             {
@@ -802,8 +842,9 @@ sealed class Ventana : Form
     {
         bool favs = categorias.SelectedIndex == 1;
         rHoy.Activo = seccion == Seccion.Hoy;
-        rCanales.Activo = EsVideo && !favs;
-        rFavoritos.Activo = EsVideo && favs;
+        rCanales.Activo = EsVideo && !favs && seccion != Seccion.Carpetas;
+        rFavoritos.Activo = EsVideo && favs && seccion != Seccion.Carpetas;
+        rCarpetas.Activo = seccion == Seccion.Carpetas; rCarpetas.Invalidate();
         rLista.Encendido = lateral.Visible;
         rLista.Enabled = EsVideo;
         rHoy.Invalidate(); rCanales.Invalidate(); rFavoritos.Invalidate(); rLista.Invalidate();
@@ -1146,6 +1187,7 @@ sealed class Ventana : Form
 
     void Filtrar()
     {
+        if (seccion == Seccion.Carpetas) return;
         var palabras = SinTildes(buscar.Text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         string cat = categorias.SelectedIndex > 1 ? (string)categorias.SelectedItem! : "";
         bool favs = categorias.SelectedIndex == 1;
@@ -1928,8 +1970,79 @@ sealed class Ventana : Form
         await Task.CompletedTask;
     }
 
+    // ---------- carpetas compartidas (vídeos del servidor o del NAS) ----------
+    string? carpId; string carpNombre = "", carpSub = "";
+    readonly Stack<string> carpPila = new();
+
+    async Task CargarCarpeta(string? id, string sub)
+    {
+        carpId = id; carpSub = sub;
+        lista.BeginUpdate(); lista.Items.Clear(); lista.EndUpdate();
+        try
+        {
+            var items = new List<ItemCarpeta>();
+            if (id == null)
+            {
+                rutaCarpeta.Text = "Carpetas";
+                var r = JsonNode.Parse(await http.GetStringAsync($"http://{Srv}:8096/api/carpetas"));
+                foreach (var c in (r?["carpetas"] as JsonArray) ?? new JsonArray())
+                {
+                    bool existe = c?["existe"]?.GetValue<bool>() ?? false;
+                    items.Add(new ItemCarpeta { Id = c?["id"]?.ToString() ?? "", Nombre = c?["nombre"]?.ToString() ?? "", Sub = "", Detalle = existe ? $"{c?["elementos"]} elementos" : "No disponible ahora (¿está montada?)" });
+                }
+                if (items.Count == 0) Estado("Aún no hay carpetas: añádelas en el panel del servidor → Carpetas");
+            }
+            else
+            {
+                var r = JsonNode.Parse(await http.GetStringAsync($"http://{Srv}:8096/api/carpetas/{Uri.EscapeDataString(id)}/listar?sub={Uri.EscapeDataString(sub)}"));
+                rutaCarpeta.Text = string.Join(" › ", new[] { carpNombre }.Concat(sub.Split('/', StringSplitOptions.RemoveEmptyEntries)));
+                items.Add(new ItemCarpeta { Atras = true, Nombre = "Atrás", Detalle = "Volver (tecla ←)" });
+                foreach (var c in (r?["carpetas"] as JsonArray) ?? new JsonArray())
+                    items.Add(new ItemCarpeta { Id = id, Nombre = c?["nombre"]?.ToString() ?? "", Sub = c?["sub"]?.ToString() ?? "", Detalle = "Carpeta" });
+                foreach (var v in (r?["videos"] as JsonArray) ?? new JsonArray())
+                {
+                    long bytes = v?["bytes"]?.GetValue<long>() ?? 0;
+                    var fecha = DateTimeOffset.FromUnixTimeMilliseconds((long)(v?["fecha"]?.GetValue<double>() ?? 0)).LocalDateTime;
+                    string arch = v?["archivo"]?.ToString() ?? "";
+                    items.Add(new ItemCarpeta { Id = id, Nombre = v?["nombre"]?.ToString() ?? "", Sub = v?["sub"]?.ToString() ?? "", Url = $"http://{Srv}:8096{v?["url"]}",
+                        Detalle = $"{(bytes >= 1_000_000_000 ? $"{bytes / 1e9:0.0} GB" : $"{Math.Max(1, bytes / 1_000_000)} MB")} · {fecha:d MMM yyyy} · {Path.GetExtension(arch).TrimStart('.').ToUpperInvariant()}" });
+                }
+            }
+            if (seccion != Seccion.Carpetas || carpId != id || carpSub != sub) return;
+            lista.BeginUpdate();
+            lista.Items.AddRange(items.ToArray());
+            if (items.Count > 0) lista.SelectedIndex = items.Count > 1 && items[0].Atras ? 1 : 0;
+            lista.EndUpdate();
+            // ▲▼ en pantalla completa pasan al vídeo anterior o siguiente de la carpeta
+            vistaCanales = items.Where(x => x.Url != null).Select(x => x.ComoCanal()).ToList();
+        }
+        catch (Exception e) { Estado("No se pueden leer las carpetas del servidor: " + e.Message); rutaCarpeta.Text = "Carpetas"; }
+    }
+
+    void AbrirItemCarpeta(ItemCarpeta ic)
+    {
+        if (ic.Atras) { CarpetaAtras(); return; }
+        if (ic.Url == null)
+        {
+            if (carpId == null) { carpPila.Clear(); carpNombre = ic.Nombre; }
+            else carpPila.Push(carpSub);
+            _ = CargarCarpeta(ic.Id, ic.Sub);
+            return;
+        }
+        var c = vistaCanales.FirstOrDefault(x => x.Clave == ic.Clave) ?? ic.ComoCanal();
+        Poner(c);
+    }
+
+    void CarpetaAtras()
+    {
+        if (carpId == null) return;
+        if (carpPila.Count > 0) _ = CargarCarpeta(carpId, carpPila.Pop());
+        else _ = CargarCarpeta(null, "");
+    }
+
     void ReproducirSeleccionado()
     {
+        if (lista.SelectedItem is ItemCarpeta ic) { AbrirItemCarpeta(ic); return; }
         if (lista.SelectedItem is Canal c) { Poner(c); return; }
         if (lista.SelectedItem is Evento ev)
         {
@@ -1952,7 +2065,7 @@ sealed class Ventana : Form
         probadoLocal = false;
         motorLocal = ajustes.MotorLocal == "pc" || (ajustes.MotorLocal == "auto" && sinServidor);
         parones.Clear();
-        ajustes.UltimoCanal = c.Clave;
+        if (!c.Clave.StartsWith("arch:")) ajustes.UltimoCanal = c.Clave;
         IrAlVideo();
         if (motorLocal && c.Enlaces.Any(x => x.Url == null)) _ = AbrirTrasMotor(c);
         else Abrir();
@@ -1990,6 +2103,7 @@ sealed class Ventana : Form
     void Corte(string motivo)
     {
         if (actual == null || reintento.Enabled || probandoLocal) return;
+        if (actual.Clave.StartsWith("arch:")) { Estado($"No se puede reproducir este vídeo ({motivo.ToLowerInvariant()})"); return; }
         bool funcionaba = sonandoDesde != DateTime.MinValue && (DateTime.Now - sonandoDesde).TotalSeconds > 60;
         if (funcionaba) { intentos = 0; enlacesProbados = 0; }
         sonandoDesde = DateTime.MinValue;
@@ -2057,6 +2171,8 @@ sealed class Ventana : Form
     {
         if (actual == null || reintento.Enabled) return;
         if (DateTime.Now >= revisarAudioEn) { revisarAudioEn = DateTime.MaxValue; RevisarAudio(); }
+        // Vídeo de una carpeta: no se vigila como un directo (se puede pausar); solo se enseña por dónde va
+        if (actual.Clave.StartsWith("arch:")) { if (EsArchivo && reproductor.IsPlaying) Estado($"▶ {actual.Titulo} · {Posicion()} · ←→ 10 s · espacio pausa"); return; }
         if (sonandoDesde == DateTime.MinValue)
         {
             if (abiertoEn != DateTime.MinValue && (DateTime.Now - abiertoEn).TotalSeconds > 45) Corte("No arranca");
@@ -2172,6 +2288,17 @@ sealed class Ventana : Form
         m.Items.Add(ver);
         m.Closed += (_, _) => BeginInvoke(new Action(m.Dispose));
         m.Show(donde, new Point(0, -m.PreferredSize.Height));
+    }
+
+    // ---------- vídeos de archivo: pausar y adelantar ----------
+    bool EsArchivo => actual != null && actual.Clave.StartsWith("arch:") && reproductor.IsSeekable && reproductor.Length > 0;
+    static string Hms(long ms) { var t = TimeSpan.FromMilliseconds(Math.Max(0, ms)); return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss"); }
+    string Posicion() => $"{Hms(reproductor.Time)} / {Hms(reproductor.Length)}";
+    void Saltar(long ms)
+    {
+        long t = Math.Clamp(reproductor.Time + ms, 0, Math.Max(0, reproductor.Length - 1000));
+        reproductor.Time = t;
+        Estado($"{(ms > 0 ? "⏩" : "⏪")} {Hms(t)} / {Hms(reproductor.Length)} · ←→ 10 s · espacio pausa");
     }
 
     // ---------- sonido ----------
@@ -2326,9 +2453,14 @@ sealed class Ventana : Form
             case Keys.A: if (!completa) { Ir(Seccion.Hoy); return true; } break;
                 case Keys.Z: if (!completa && EsVideo) { Ampliar(lateral.Visible || ficha.Visible); return true; } break;
             case Keys.M: reproductor.Mute = !reproductor.Mute; Estado(reproductor.Mute ? "Silenciado" : TextoSonando()); return true;
-            case Keys.Space: if (actual != null) Parar(); else if (EsVideo) ReproducirSeleccionado(); return true;
+            case Keys.Space:
+                if (EsArchivo) { reproductor.SetPause(reproductor.IsPlaying); Estado((reproductor.IsPlaying ? "❚❚ " : "▶ ") + Posicion()); return true; }
+                if (actual != null) Parar(); else if (EsVideo) ReproducirSeleccionado(); return true;
             case Keys.Up: if (completa) { Zapear(-1); return true; } break;
             case Keys.Down: if (completa) { Zapear(1); return true; } break;
+            case Keys.Right when EsArchivo && (completa || !lista.Focused): Saltar(10000); return true;
+            case Keys.Left when EsArchivo && (completa || !lista.Focused): Saltar(-10000); return true;
+            case Keys.Left when seccion == Seccion.Carpetas && lista.Focused && carpId != null: CarpetaAtras(); return true;
             case Keys.Right: if (completa || !lista.Focused) { volumen.Value = Math.Min(100, volumen.Value + 5); return true; } break;
             case Keys.Left: if (completa || !lista.Focused) { volumen.Value = Math.Max(0, volumen.Value - 5); return true; } break;
         }

@@ -52,6 +52,8 @@ export class Player {
     if (!reabriendo) this.reaperturas = 0;
     const token = ++this.token;
     this.channel = channel;
+    this.archivo = !!channel.archivo;   // vídeo de una carpeta del servidor: se ve con el reproductor del navegador
+    this.video.controls = this.archivo;
     this.recargas = 0;
     this.onEstado({ cargando: true, texto: channel.url ? 'Abriendo el canal…' : 'Pidiendo el canal al motor…' });
     let url;
@@ -116,6 +118,12 @@ export class Player {
   cargar(token) {
     const v = this.video;
     const url = this.url;
+    if (this.archivo) {
+      if (this.hls) { this.hls.destroy(); this.hls = null; }
+      v.src = url;
+      v.play().catch(() => { /* el navegador puede pedir un toque antes de sonar */ });
+      return;
+    }
     // Siempre hls.js donde funcione. Chrome y Edge nuevos dicen que saben abrir HLS ellos solos, pero con las
     // emisiones del motor fallan («no puede abrir este stream»); el modo nativo queda solo para iPhone/iPad.
     const useHlsJs = typeof Hls !== 'undefined' && Hls.isSupported();
@@ -199,6 +207,7 @@ export class Player {
   // Si el vídeo no avanza (sin estar en pausa) se recarga; tras varias recargas se avisa como error
   vigilar(token) {
     clearInterval(this.vigia);
+    if (this.archivo) return;   // un vídeo de archivo no se corta como un directo
     let ultimo = -1;
     let desde = Date.now();
     let empujado = false;

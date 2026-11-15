@@ -7,6 +7,60 @@ const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([di
 const lastInZone = new Map();
 let usoMando = false;   // la última interacción fue con flechas (no con ratón o dedo)
 let ultimo = null;   // dónde estaba el foco: { zona, clave, idx }, para recuperarlo si la pantalla se repinta
+let ultimaTecla = 0;
+// ¿Se está moviendo ahora mismo con el mando? Los repintados automáticos esperan a que pare (así no salta el foco)
+export function tecleando() { return Date.now() - ultimaTecla < 1500; }
+const enEspera = new Map();
+export function enCalma(clave, fn) {
+  if (!tecleando()) { clearTimeout(enEspera.get(clave)); enEspera.delete(clave); fn(); return; }
+  if (enEspera.has(clave)) return;
+  enEspera.set(clave, setTimeout(function otra() {
+    if (tecleando()) { enEspera.set(clave, setTimeout(otra, 400)); return; }
+    enEspera.delete(clave);
+    fn();
+  }, 400));
+}
+
+// Cambia el contenido de un bloque sin que salte nada: si no ha cambiado no lo toca; si cambia, guarda y repone el
+// desplazamiento de las filas horizontales, el de la página y el foco (el mismo elemento o el que ocupa su sitio).
+const claveFoco = (el) => el.dataset.hkey || el.dataset.key || el.dataset.id || el.dataset.opt || el.dataset.grupo || el.id || '';
+export function ponerHtml(raiz, html) {
+  if (raiz._html === html) return false;
+  const a = document.activeElement;
+  const dentro = !!(a && a !== document.body && raiz.contains(a));
+  const filas = new Map();
+  raiz.querySelectorAll('.fila-scroll, .directo-fila').forEach((f, i) => {
+    const k = f.closest('[aria-label]')?.getAttribute('aria-label') || `#${i}`;
+    if (f.scrollLeft) filas.set(k, f.scrollLeft);
+  });
+  let clave = '', idxSec = -1, sec = '', idxTotal = -1;
+  if (dentro) {
+    clave = claveFoco(a);
+    const s = a.closest('section[aria-label], [data-zona-foco]');
+    sec = s ? (s.getAttribute('aria-label') || s.dataset.zonaFoco) : '';
+    if (s) idxSec = [...s.querySelectorAll(FOCUSABLE)].indexOf(a);
+    idxTotal = [...raiz.querySelectorAll(FOCUSABLE)].indexOf(a);
+  }
+  const y = window.scrollY;
+  raiz.innerHTML = html;
+  raiz._html = html;
+  raiz.querySelectorAll('.fila-scroll, .directo-fila').forEach((f, i) => {
+    const k = f.closest('[aria-label]')?.getAttribute('aria-label') || `#${i}`;
+    if (filas.has(k)) f.scrollLeft = filas.get(k);
+  });
+  if (dentro) {
+    let el = clave ? [...raiz.querySelectorAll(FOCUSABLE)].find((x) => claveFoco(x) === clave) : null;
+    if (!el && sec) {
+      const s = [...raiz.querySelectorAll('section[aria-label], [data-zona-foco]')].find((x) => (x.getAttribute('aria-label') || x.dataset.zonaFoco) === sec);
+      const l = s ? [...s.querySelectorAll(FOCUSABLE)].filter(visible) : [];
+      if (l.length) el = l[Math.max(0, Math.min(idxSec, l.length - 1))];
+    }
+    if (!el) { const l = [...raiz.querySelectorAll(FOCUSABLE)].filter(visible); if (l.length) el = l[Math.max(0, Math.min(idxTotal, l.length - 1))]; }
+    if (el) { el.focus({ preventScroll: true }); anotarFoco(el); }
+  }
+  if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
+  return true;
+}
 
 // En el móvil se maneja con el dedo: el foco (el recuadro del mando) solo se usa si se está usando un teclado
 let tactil = false;
@@ -88,16 +142,29 @@ export function focusEl(el, center = true) {
   // (el suave se atasca en las teles); scroll-margin en el CSS deja ver lo que hay alrededor.
   if (center && !el.closest('.side')) {
     const r = el.getBoundingClientRect();
-    const caja = el.closest('.dialog');
-    const zona = caja ? caja.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
-    const margen = zona.height * 0.18;
-    if (r.top < zona.top + margen || r.bottom > zona.bottom - margen) el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+    // Se desplaza lo justo para que el elemento quede dentro con un margen (sin centrar de golpe: no da saltos)
+    const cont = contenedorScroll(el);
+    const zona = cont ? cont.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
+    const margen = Math.min(zona.height * 0.2, Math.max(r.height * 0.8, 60));
+    let dy = 0;
+    if (r.height > zona.height - 2 * margen) dy = r.top - zona.top - margen;
+    else if (r.top < zona.top + margen) dy = r.top - (zona.top + margen);
+    else if (r.bottom > zona.bottom - margen) dy = r.bottom - (zona.bottom - margen);
+    if (dy) { if (cont) cont.scrollTop += dy; else window.scrollBy(0, dy); }
     const fila = el.closest('.fila-scroll, .directo-fila, .guia-scroll');
     if (fila) {
       const rf = fila.getBoundingClientRect();
       if (r.left < rf.left || r.right > rf.right) fila.scrollLeft += r.left - rf.left - (rf.width - r.width) / 2;
     }
   }
+}
+
+function contenedorScroll(el) {
+  for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 2) return p;
+  }
+  return null;
 }
 
 export function rememberedIn(zone) {
@@ -134,11 +201,14 @@ export function move(dir) {
     const p = center(r);
     let primary;
     let secondary;
-    if (dir === 'left') { if (r.right > from.left + 1) continue; primary = from.left - r.right; secondary = Math.abs(p.y - c.y); }
-    if (dir === 'right') { if (r.left < from.right - 1) continue; primary = r.left - from.right; secondary = Math.abs(p.y - c.y); }
-    if (dir === 'up') { if (r.bottom > from.top + 1) continue; primary = from.top - r.bottom; secondary = Math.abs(p.x - c.x); }
-    if (dir === 'down') { if (r.top < from.bottom - 1) continue; primary = r.top - from.bottom; secondary = Math.abs(p.x - c.x); }
-    const score = Math.max(primary, 0) + secondary * 2;
+    // Lo lateral se mide por el hueco entre los dos elementos (0 si se solapan), no entre sus centros: así una fila
+    // ancha justo debajo gana a una tarjeta estrecha que esté más lejos (antes se saltaba la agenda entera)
+    const hueco = (a1, a2, b1, b2) => Math.max(0, b1 - a2, a1 - b2);
+    if (dir === 'left') { if (r.right > from.left + 1) continue; primary = from.left - r.right; secondary = hueco(from.top, from.bottom, r.top, r.bottom) * 2 + Math.abs(p.y - c.y) * 0.1; }
+    if (dir === 'right') { if (r.left < from.right - 1) continue; primary = r.left - from.right; secondary = hueco(from.top, from.bottom, r.top, r.bottom) * 2 + Math.abs(p.y - c.y) * 0.1; }
+    if (dir === 'up') { if (r.bottom > from.top + 1) continue; primary = from.top - r.bottom; secondary = hueco(from.left, from.right, r.left, r.right) * 2 + Math.abs(p.x - c.x) * 0.1; }
+    if (dir === 'down') { if (r.top < from.bottom - 1) continue; primary = r.top - from.bottom; secondary = hueco(from.left, from.right, r.left, r.right) * 2 + Math.abs(p.x - c.x) * 0.1; }
+    const score = Math.max(primary, 0) + secondary;
     if (score < bestScore) { bestScore = score; best = el; }
   }
   if (best) { focusEl(best); return; }
@@ -158,7 +228,7 @@ export function move(dir) {
 const DIRS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
 
 export function installNav(onBack) {
-  document.addEventListener('keydown', (e) => { if (e.key in DIRS || e.key === 'Enter') usoMando = true; }, true);
+  document.addEventListener('keydown', (e) => { if (e.key in DIRS || e.key === 'Enter') usoMando = true; if (e.key in DIRS) ultimaTecla = Date.now(); }, true);
   document.addEventListener('pointerdown', () => { usoMando = false; }, true);
   // Tras cualquier repintado de la pantalla, si el foco se ha perdido se recupera en su zona
   let pendiente = false;

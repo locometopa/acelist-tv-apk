@@ -29,12 +29,31 @@ static class Tema
     // Solo cambia lo que está con el aspecto por defecto de Windows: lo que ya tiene color propio se queda como está.
     public static void Aplicar(Form f)
     {
+        Escalar(f);
         f.BackColor = Fondo;
         f.ForeColor = Texto;
         if (f.IsHandleCreated) Nativo.BarraOscura(f.Handle);
         else f.HandleCreated += (_, _) => Nativo.BarraOscura(f.Handle);
         Pintar(f);
         Nativo.Oscurecer(f);
+    }
+
+    // Las ventanas se montan en píxeles pensando en el 100 %: con Windows al 125 % o 150 % la letra crece pero las cajas no,
+    // y los textos se cortaban. Se agranda todo en la misma proporción (una sola vez por ventana).
+    public static void Escalar(Form f)
+    {
+        if (f.Tag as string == "escalada") return;
+        f.Tag = "escalada";
+        float k = f.DeviceDpi / 96f;
+        if (k < 1.05f) return;
+        f.AutoScaleMode = AutoScaleMode.None;
+        f.Scale(new SizeF(k, k));
+        var area = Screen.FromControl(f).WorkingArea;
+        if (f.Width > area.Width || f.Height > area.Height)
+        {
+            f.AutoScroll = true;
+            f.Size = new Size(Math.Min(f.Width, area.Width - 20), Math.Min(f.Height, area.Height - 20));
+        }
     }
 
     static void Pintar(Control padre)
