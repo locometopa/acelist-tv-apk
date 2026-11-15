@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.68.0';
+const VERSION = '0.69.0';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -337,6 +337,10 @@ async function aprenderDelReproductor() {
   try {
     const r = await plugins.Nativo.resultadosReproductor();
     lista = JSON.parse(r.resultados || '[]');
+    // Favoritos puestos o quitados desde las opciones del reproductor (mantener OK)
+    const favs = Object.entries(JSON.parse(r.favoritos || '{}'));
+    for (const [id, poner] of favs) if (store.find(id)) store.updateChannel(id, { favorite: !!poner });
+    if (favs.length && !lista.length) { if (ui.section === 'canales' || ui.section === 'inicio' || ui.section === 'favoritos') render(); return; }
     // Si en el reproductor se cambió el formato con ≡, se queda como el elegido
     if ((r.formato === 'ts' || r.formato === 'hls') && r.formato !== (store.settings.formatoStream || 'ts')) store.setSettings({ formatoStream: r.formato });
   } catch { return; }
@@ -390,7 +394,7 @@ async function openWith(app, c, list) {
     // En la tele: reproductor nativo (ExoPlayer), con zapping por la misma lista
     const mapa = mapaEnlaces();
     const item = (x) => (x.archivo ? { id: x.id, title: x.title, url: x.url, enlaces: JSON.stringify([{ id: x.id, url: x.url }]) } : {
-      id: x.id, title: x.title, url: viaVpn(x.url || ''),
+      id: x.id, title: x.title, url: viaVpn(x.url || ''), fav: !!x.favorite,
       enlaces: JSON.stringify(enlacesDe(x, mapa).map((e) => ({ ...e, url: viaVpn(e.url) }))),
     });
     const items = (list && list.length ? list : listaZapping()).map(item);

@@ -70,6 +70,7 @@ public class ReproductorActivity extends Activity {
     public static final String EXTRA_MOTOR = "motor";
     public static final String EXTRA_FORMATO = "formato";
     public static final String EXTRA_BLOQUEO = "bloqueo";
+    public static final String EXTRA_FAVS = "favs";
     // Si la tele se bloquea desde el servidor mientras se ve un canal, se cierra el reproductor
     private String urlBloqueo = "";
     private final Runnable mirarBloqueo = new Runnable() {
@@ -90,6 +91,7 @@ public class ReproductorActivity extends Activity {
     private ArrayList<String> titulos;
     private ArrayList<String> urls;
     private ArrayList<String> enlaces;
+    private ArrayList<String> favs;   // "1" si el canal de esa posición es favorito
     // Enlaces del canal actual (el elegido y los demás del mismo canal); si uno falla se pasa al siguiente
     private final ArrayList<String[]> fuentes = new ArrayList<>();
     private int fuente = 0;
@@ -179,6 +181,9 @@ public class ReproductorActivity extends Activity {
         enlaces = getIntent().getStringArrayListExtra(EXTRA_ENLACES);
         if (enlaces == null) enlaces = new ArrayList<>();
         while (enlaces.size() < ids.size()) enlaces.add("");
+        favs = getIntent().getStringArrayListExtra(EXTRA_FAVS);
+        if (favs == null) favs = new ArrayList<>();
+        while (favs.size() < ids.size()) favs.add("");
         if (motor == null || motor.isEmpty()) motor = "http://127.0.0.1:6878";
         motor = motor.replaceAll("/+$", "");
 
@@ -424,7 +429,7 @@ public class ReproductorActivity extends Activity {
         panel.addView(txtAyuda);
         // Botón «Sonido y opciones» (en la tele se abre con la tecla Menú)
         btnOpciones = texto(16, Color.WHITE, true);
-        btnOpciones.setText(esTele ? "♪  Sonido y opciones: mantén pulsado OK (o tecla Menú)" : "♪  Sonido y opciones");
+        btnOpciones.setText(esTele ? "☰  Opciones del canal (favorito, grabar, enlaces, sonido): mantén pulsado OK" : "☰  Opciones del canal");
         btnOpciones.setPadding(36, 18, 36, 18);
         GradientDrawable bf = new GradientDrawable();
         bf.setColor(0x33FFFFFF);
@@ -464,7 +469,7 @@ public class ReproductorActivity extends Activity {
                     int[] p = new int[2];
                     btnOpciones.getLocationOnScreen(p);
                     if (e.getRawX() >= p[0] && e.getRawX() <= p[0] + btnOpciones.getWidth() && e.getRawY() >= p[1] && e.getRawY() <= p[1] + btnOpciones.getHeight()) {
-                        opcionesSonido();
+                        opcionesCanal();
                         return true;
                     }
                 }
@@ -562,6 +567,144 @@ public class ReproductorActivity extends Activity {
     }
 
     // Sonido y opciones del canal: elegir pista de audio, convertir el sonido en el servidor, TS/HLS y otro enlace
+    // Mantener OK (o Menú): todo lo que se puede hacer con el canal que se está viendo
+    private void opcionesCanal() {
+        if (player == null || ids.isEmpty()) return;
+        mostrarPanel(8000);
+        final java.util.List<String> textos = new ArrayList<>();
+        final java.util.List<Runnable> acciones = new ArrayList<>();
+        final boolean archivo = esArchivo();
+        if (!archivo) {
+            final boolean fav = "1".equals(favs.get(indice));
+            textos.add(fav ? "☆  Quitar de favoritos" : "★  Añadir a favoritos");
+            acciones.add(() -> alternarFavorito());
+            textos.add("⏺  Grabar este canal en el servidor…");
+            acciones.add(this::menuGrabar);
+            if (fuentes.size() > 1) {
+                textos.add("⇄  Elegir enlace (ahora el " + (fuente + 1) + " de " + fuentes.size() + ")…");
+                acciones.add(this::menuEnlaces);
+            }
+        }
+        textos.add("♪  Sonido y pistas…");
+        acciones.add(this::opcionesSonido);
+        if (!archivo) {
+            textos.add("⟳  Volver a cargar el canal");
+            acciones.add(() -> { reintentos = 0; vueltas = 0; cargar(false); txtEstado.setText("Volviendo a cargar…"); });
+        }
+        textos.add("▣  Recolocar la imagen (si se ve cortada o congelada)");
+        acciones.add(this::recolocar);
+        textos.add("ⓘ  Ver información del enlace (peers, velocidad)");
+        acciones.add(() -> mostrarPanel(10000));
+        if (ids.size() > 1) {
+            textos.add("☰  Ir a otro canal de la lista…");
+            acciones.add(this::menuCanales);
+        }
+        textos.add("←  Salir a la lista de canales");
+        acciones.add(this::finish);
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(titulos.get(indice))
+            .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
+            .setNegativeButton("Cerrar", null)
+            .show();
+    }
+
+    // El favorito se apunta aquí y la app lo aplica (y lo comparte con el servidor) al volver a la lista
+    private void alternarFavorito() {
+        boolean poner = !"1".equals(favs.get(indice));
+        favs.set(indice, poner ? "1" : "");
+        android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        try {
+            JSONObject o = new JSONObject(sp.getString("favCambios", "{}"));
+            o.put(ids.get(indice), poner);
+            sp.edit().putString("favCambios", o.toString()).apply();
+        } catch (Exception ignored) { }
+        txtEstado.setText(poner ? "★ " + titulos.get(indice) + " en favoritos" : "☆ " + titulos.get(indice) + " fuera de favoritos");
+        mostrarPanel(4000);
+    }
+
+    private void menuGrabar() {
+        final String casa = servidorCasa();
+        if (casa == null) { txtEstado.setText("Para grabar hace falta el servidor de casa (Ajustes de la app)"); mostrarPanel(5000); return; }
+        final String[] textos = { "30 minutos", "1 hora", "2 horas", "3 horas", "Hasta que lo pare (máx. 8 horas)" };
+        final int[] minutos = { 30, 60, 120, 180, 480 };
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Grabar " + titulos.get(indice))
+            .setItems(textos, (d, w) -> grabar(casa, minutos[w]))
+            .setNegativeButton("Cancelar", null)
+            .show();
+    }
+
+    private void grabar(String casa, int minutos) {
+        final String titulo = titulos.get(indice);
+        txtEstado.setText("Pidiendo la grabación al servidor…");
+        mostrarPanel(5000);
+        red.execute(() -> {
+            String msg;
+            try {
+                JSONArray en = new JSONArray();
+                // Primero el enlace que se está viendo, luego los demás del canal
+                for (int k = 0; k < fuentes.size() && en.length() < 6; k++) {
+                    String[] f = fuentes.get((fuente + k) % fuentes.size());
+                    JSONObject o = new JSONObject();
+                    if (f[1] != null && !f[1].isEmpty()) o.put("url", f[1]); else o.put("id", f[0]);
+                    en.put(o);
+                }
+                JSONObject b = new JSONObject();
+                b.put("titulo", titulo + " · " + new java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(new java.util.Date()));
+                b.put("canal", titulo);
+                b.put("enlaces", en);
+                b.put("minutos", minutos);
+                b.put("de", "tele");
+                JSONObject r = enviar(casa + "/api/grabar", b.toString(), 20000);
+                msg = r.has("error") ? "No se pudo grabar: " + r.optString("error") : "⏺ Grabando " + titulo + " en el servidor (" + (minutos >= 60 ? (minutos / 60) + " h" : minutos + " min") + ")";
+            } catch (Exception e) { msg = "No se pudo grabar: el servidor de casa no responde"; }
+            final String m = msg;
+            ui.post(() -> { txtEstado.setText(m); mostrarPanel(6000); });
+        });
+    }
+
+    private void menuEnlaces() {
+        final String[] textos = new String[fuentes.size()];
+        for (int i = 0; i < fuentes.size(); i++) {
+            String[] f = fuentes.get(i);
+            boolean abierto = f[1] != null && !f[1].isEmpty();
+            textos[i] = (i == fuente ? "✓ " : "    ") + "Enlace " + (i + 1) + " · " + (abierto ? "en abierto" : "Ace Stream " + f[0].substring(0, Math.min(6, f[0].length())));
+        }
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Enlaces de " + titulos.get(indice))
+            .setItems(textos, (d, w) -> { if (w != fuente) { fuente = w; reintentos = 0; vueltas = 0; cargar(false); } })
+            .setNegativeButton("Cerrar", null)
+            .show();
+    }
+
+    private void menuCanales() {
+        final String[] textos = new String[ids.size()];
+        for (int i = 0; i < ids.size(); i++) textos[i] = (i == indice ? "▶ " : "") + ("1".equals(favs.get(i)) ? "★ " : "") + titulos.get(i);
+        android.app.AlertDialog d = new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Canales")
+            .setItems(textos, (x, w) -> { if (w != indice) zap(w - indice); })
+            .setNegativeButton("Cerrar", null)
+            .create();
+        d.show();
+        try { d.getListView().setSelection(indice); } catch (Exception ignored) { }
+    }
+
+    private static JSONObject enviar(String url, String cuerpo, int timeout) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(timeout);
+        c.setReadTimeout(timeout);
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", "application/json");
+        try {
+            c.getOutputStream().write(cuerpo.getBytes(StandardCharsets.UTF_8));
+            java.io.InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
+            StringBuilder sb = new StringBuilder();
+            if (in != null) try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) { String l; while ((l = r.readLine()) != null) sb.append(l); }
+            return sb.length() > 0 ? new JSONObject(sb.toString()) : new JSONObject();
+        } finally { c.disconnect(); }
+    }
+
     private void opcionesSonido() {
         if (player == null) return;
         mostrarPanel(8000);
@@ -606,7 +749,7 @@ public class ReproductorActivity extends Activity {
         }
         if (fuentes.size() > 1) { textos.add("Probar otro enlace (" + fuentes.size() + " en total)"); acciones.add(() -> cambiarFuente(1)); }
         new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Sonido y opciones")
+            .setTitle("Sonido y formato")
             .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
             .setNegativeButton("Cerrar", null)
             .show();
@@ -980,7 +1123,7 @@ public class ReproductorActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER: {
                 // Mantener OK pulsado: sonido y opciones (muchos mandos no tienen tecla Menú)
-                if (event.getRepeatCount() == 3) { ultimoOk = 0; opcionesSonido(); return true; }
+                if (event.getRepeatCount() == 3) { ultimoOk = 0; opcionesCanal(); return true; }
                 if (event.getRepeatCount() > 0) return true;
                 // En un vídeo de carpeta, OK pausa y sigue
                 if (esArchivo()) {
@@ -995,7 +1138,7 @@ public class ReproductorActivity extends Activity {
             }
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_SETTINGS:
-                opcionesSonido();
+                opcionesCanal();
                 return true;
             case KeyEvent.KEYCODE_PROG_RED: {
                 // Cambiar entre flujo continuo (TS) y troceado (HLS) para comparar

@@ -112,6 +112,7 @@ public class AceListNativoPlugin extends Plugin {
         ArrayList<String> titulos = new ArrayList<>();
         ArrayList<String> urls = new ArrayList<>();
         ArrayList<String> enlaces = new ArrayList<>();
+        ArrayList<String> favs = new ArrayList<>();
         try {
             for (int i = 0; items != null && i < items.length(); i++) {
                 JSONObject o = items.getJSONObject(i);
@@ -119,6 +120,7 @@ public class AceListNativoPlugin extends Plugin {
                 titulos.add(o.optString("title", o.getString("id")));
                 urls.add(o.optString("url", ""));
                 enlaces.add(o.optString("enlaces", ""));
+                favs.add(o.optBoolean("fav", false) ? "1" : "");
             }
         } catch (Exception e) {
             call.reject("Lista de canales no válida");
@@ -130,6 +132,7 @@ public class AceListNativoPlugin extends Plugin {
         intent.putStringArrayListExtra(ReproductorActivity.EXTRA_TITULOS, titulos);
         intent.putStringArrayListExtra(ReproductorActivity.EXTRA_URLS, urls);
         intent.putStringArrayListExtra(ReproductorActivity.EXTRA_ENLACES, enlaces);
+        intent.putStringArrayListExtra(ReproductorActivity.EXTRA_FAVS, favs);
         intent.putExtra(ReproductorActivity.EXTRA_INDICE, Math.max(0, Math.min(ids.size() - 1, call.getInt("index", 0))));
         intent.putExtra(ReproductorActivity.EXTRA_MOTOR, call.getString("motor", "http://127.0.0.1:6878"));
         intent.putExtra(ReproductorActivity.EXTRA_FORMATO, call.getString("formato", "ts"));
@@ -143,9 +146,11 @@ public class AceListNativoPlugin extends Plugin {
     public void resultadosReproductor(PluginCall call) {
         android.content.SharedPreferences sp = getContext().getSharedPreferences(ReproductorActivity.PREFS, android.content.Context.MODE_PRIVATE);
         String r = sp.getString("resultados", "[]");
-        sp.edit().remove("resultados").apply();
+        String fv = sp.getString("favCambios", "{}");
+        sp.edit().remove("resultados").remove("favCambios").apply();
         JSObject res = new JSObject();
         res.put("resultados", r);
+        res.put("favoritos", fv);
         res.put("formato", sp.getString("formato", ""));
         call.resolve(res);
     }
