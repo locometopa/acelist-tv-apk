@@ -65,7 +65,7 @@ sealed class ItemCarpeta
 {
     public string Id = "", Nombre = "", Sub = "", Detalle = "";
     public string? Url;          // null: es una carpeta
-    public bool Atras;
+    public bool Atras, Anadir;
     public string Clave => "arch:" + Id + "/" + Sub;
     public Canal ComoCanal() => new() { Clave = Clave, Titulo = Nombre, Categoria = "Carpetas", Enlaces = { new Enlace { Id = Clave, Titulo = Nombre, Url = Url } } };
     public override string ToString() => Nombre;
@@ -95,6 +95,7 @@ sealed class Ajustes
     public bool SoloConCanal { get; set; } = true;
     public bool ListaOculta { get; set; }   // la lista de canales de la izquierda escondida, para dar más sitio al vídeo
     public string UltimoCanal { get; set; } = "";
+    public string UsuarioNas { get; set; } = "";   // último usuario puesto al añadir una carpeta del NAS
     public string MotorLocal { get; set; } = "auto";   // auto: el del PC solo si falla el del servidor · servidor · pc
     public int Colchon { get; set; } = 6000;   // milisegundos de vídeo que se guardan antes de enseñarlo (más = menos cortes, más retraso)
 
@@ -622,7 +623,7 @@ sealed class Ventana : Form
         {
             bool sonando = ic.Url != null && actual != null && actual.Clave == ic.Clave;
             if (sonando) { using var a = new SolidBrush(Acento); e.Graphics.FillRectangle(a, e.Bounds.Left, e.Bounds.Top + 4, 3, e.Bounds.Height - 8); }
-            TextRenderer.DrawText(e.Graphics, ic.Atras ? "\uE72B" : ic.Url == null ? "\uE8B7" : "\uE768", Tema.IconosPeq, new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, 26, e.Bounds.Height), ic.Url == null ? Acento : Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, ic.Anadir ? "\uE710" : ic.Atras ? "\uE72B" : ic.Url == null ? "\uE8B7" : "\uE768", Tema.IconosPeq, new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, 26, e.Bounds.Height), ic.Url == null ? Acento : Texto, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             TextRenderer.DrawText(e.Graphics, ic.Nombre, Font, r1, sonando ? Acento : Texto, corta);
             TextRenderer.DrawText(e.Graphics, ic.Detalle, pequena, r2, Tenue, corta);
         }
@@ -1227,6 +1228,7 @@ sealed class Ventana : Form
             Accion("Añadir una lista (archivo o enlace)…", () => _ = AñadirLista()),
             Accion("Actualizar canales y agenda ahora", () => _ = CargarCanales(true)),
             Accion("Ver las grabaciones del servidor…", () => AbrirWeb($"http://{Srv}:8096/#grabaciones")),
+            Accion("Añadir una carpeta de vídeos (NAS o red)…", () => _ = AnadirCarpeta()),
             Titulo("Programa"), Nota($"HomeTV {VersionPropia.Major}.{VersionPropia.Minor}.{Math.Max(VersionPropia.Build, 0)}. Se actualiza solo cuando hay una versión nueva."),
         });
         var ok = new Button { Text = "Guardar", Left = 366, Top = 552, Width = 86, Height = 32, DialogResult = DialogResult.OK };
@@ -1951,7 +1953,7 @@ sealed class Ventana : Form
                     bool existe = c?["existe"]?.GetValue<bool>() ?? false;
                     items.Add(new ItemCarpeta { Id = c?["id"]?.ToString() ?? "", Nombre = c?["nombre"]?.ToString() ?? "", Sub = "", Detalle = c?["tipo"]?.ToString() == "jellyfin" ? "Jellyfin" : existe ? $"{c?["elementos"]} elementos" : "No disponible ahora (¿está montada?)" });
                 }
-                if (items.Count == 0) Estado("Aún no hay carpetas: añádelas en el panel del servidor → Carpetas");
+                items.Add(new ItemCarpeta { Anadir = true, Nombre = "Añadir carpeta…", Detalle = "Elige una carpeta del NAS o de la red en la ventana de Windows" });
             }
             else
             {
@@ -1982,6 +1984,7 @@ sealed class Ventana : Form
 
     void AbrirItemCarpeta(ItemCarpeta ic)
     {
+        if (ic.Anadir) { _ = AnadirCarpeta(); return; }
         if (ic.Atras) { CarpetaAtras(); return; }
         if (ic.Url == null)
         {
@@ -1992,6 +1995,58 @@ sealed class Ventana : Form
         }
         var c = vistaCanales.FirstOrDefault(x => x.Clave == ic.Clave) ?? ic.ComoCanal();
         Poner(c);
+    }
+
+    [System.Runtime.InteropServices.DllImport("mpr.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern int WNetGetConnection(string local, StringBuilder remota, ref int largo);
+
+    // Una unidad de red (Z:\Pelis) se convierte en su ruta de red (\\192.168.1.150\video\Pelis)
+    static string? RutaDeRed(string ruta)
+    {
+        if (ruta.StartsWith(@"\\")) return ruta;
+        if (ruta.Length < 2 || ruta[1] != ':') return null;
+        var sb = new StringBuilder(512); int largo = sb.Capacity;
+        if (WNetGetConnection(ruta[..2], sb, ref largo) != 0) return null;
+        return sb.ToString().TrimEnd('\\') + ruta[2..].TrimEnd('\\');
+    }
+
+    // Añadir una carpeta: se elige en la ventana de Windows (Red → NAS → carpeta) y el servidor se conecta a ella
+    async Task AnadirCarpeta()
+    {
+        using var d = new FolderBrowserDialog { Description = "Elige la carpeta de vídeos (del NAS o de otro equipo: en «Red»)", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        string? red = RutaDeRed(d.SelectedPath);
+        if (red == null)
+        {
+            MessageBox.Show(this, "Esa carpeta está en este PC y el servidor no la ve (además, si el PC está apagado no se podría ver).\n\nElige una carpeta del NAS: en la ventana, «Red» → el NAS (o escribe \\\\192.168.1.150 arriba) → la carpeta.", "HomeTV · Carpetas", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        // Usuario y contraseña del NAS (los guarda solo el servidor)
+        using var f = new Form { Text = "Usuario del NAS", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, ClientSize = new Size(420, 230), MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false, Font = Font };
+        var lr = new Label { Text = red, Left = 16, Top = 14, Width = 388, Height = 22, AutoEllipsis = true, Font = Tema.Negrita };
+        var lu = new Label { Text = "Usuario", Left = 16, Top = 46, AutoSize = true };
+        var tu = new TextBox { Left = 16, Top = 68, Width = 388, Text = ajustes.UsuarioNas };
+        var lc = new Label { Text = "Contraseña", Left = 16, Top = 100, AutoSize = true };
+        var tc = new TextBox { Left = 16, Top = 122, Width = 388, UseSystemPasswordChar = true };
+        var ok = new Button { Text = "Añadir", Left = 214, Top = 176, Width = 92, Height = 34, DialogResult = DialogResult.OK };
+        var no = new Button { Text = "Cancelar", Left = 312, Top = 176, Width = 92, Height = 34, DialogResult = DialogResult.Cancel };
+        f.Controls.AddRange(new Control[] { lr, lu, tu, lc, tc, ok, no });
+        f.AcceptButton = ok; f.CancelButton = no;
+        Tema.Aplicar(f);
+        if (f.ShowDialog(this) != DialogResult.OK) return;
+        ajustes.UsuarioNas = tu.Text.Trim(); ajustes.Guardar();
+        Estado($"Conectando el servidor con {red}…");
+        try
+        {
+            var cuerpo = new JsonObject { ["ruta"] = red, ["usuario"] = tu.Text.Trim(), ["clave"] = tc.Text };
+            using var c = new StringContent(cuerpo.ToJsonString(), Encoding.UTF8, "application/json");
+            using var r = await httpLargo.PostAsync($"http://{Srv}:8096/api/carpetas/red", c);
+            var j = JsonNode.Parse(await r.Content.ReadAsStringAsync());
+            if (!r.IsSuccessStatusCode) throw new Exception(j?["error"]?.ToString() ?? $"el servidor ha respondido {(int)r.StatusCode}");
+            Estado($"Carpeta añadida: {j?["carpeta"]?["nombre"]}. Ya sale en todas las teles.");
+            if (seccion == Seccion.Carpetas && carpId == null) _ = CargarCarpeta(null, "");
+        }
+        catch (Exception e) { Estado("No se ha podido añadir la carpeta"); MessageBox.Show(this, e.Message, "HomeTV · Carpetas", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     void CarpetaAtras()
