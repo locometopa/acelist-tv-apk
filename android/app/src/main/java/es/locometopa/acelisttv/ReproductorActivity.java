@@ -112,7 +112,25 @@ public class ReproductorActivity extends Activity {
     private ExoPlayer player;
     private PlayerView vista;
     private LinearLayout panel;
-    private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap, btnOpciones;
+    private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap, btnOpciones, chipRec;
+    // Grabación activa del canal que se está viendo: id en el servidor y ms epoch del inicio
+    private volatile String grabacionActivaId = null;
+    private volatile long grabacionDesde = 0;
+    private int chipRecParpadeo = 0;
+    private final Runnable refrescarChipRec = new Runnable() {
+        @Override public void run() {
+            if (chipRec == null) return;
+            if (grabacionActivaId == null || grabacionDesde == 0) {
+                chipRec.setVisibility(View.GONE);
+                return;
+            }
+            long seg = Math.max(0, (System.currentTimeMillis() - grabacionDesde) / 1000);
+            String t = String.format(java.util.Locale.ROOT, "%02d:%02d", seg / 60, seg % 60);
+            chipRec.setText(((chipRecParpadeo++ % 2 == 0) ? "● " : "○ ") + "REC " + t);
+            chipRec.setVisibility(View.VISIBLE);
+            ui.postDelayed(this, 1000);
+        }
+    };
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean esTele = true;
@@ -279,6 +297,8 @@ public class ReproductorActivity extends Activity {
         });
         cargar(true);
         ui.postDelayed(mirarBloqueo, 10000);
+        // Comprobar si el canal con el que arranca el reproductor ya se está grabando en el servidor
+        consultarGrabacion();
         // La vigilancia automática de la imagen (vigiaImagen) queda desactivada: recolocaba de más.
         // Se puede recolocar a mano con OK dos veces (mando) o manteniendo pulsado (móvil).
     }
@@ -457,6 +477,18 @@ public class ReproductorActivity extends Activity {
         zl.setMargins(0, 48, 64, 0);
         raiz.addView(txtZap, zl);
 
+        // Chip «● REC MM:SS» arriba a la izquierda, visible solo mientras hay grabación del canal actual
+        chipRec = texto(18, Color.WHITE, true);
+        chipRec.setPadding(28, 12, 34, 12);
+        GradientDrawable rf = new GradientDrawable();
+        rf.setColor(0xE6D32F2F);
+        rf.setCornerRadius(24);
+        chipRec.setBackground(rf);
+        chipRec.setVisibility(View.GONE);
+        FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        rl.setMargins(64, 48, 0, 0);
+        raiz.addView(chipRec, rl);
+
         setContentView(raiz);
         if (!esTele) prepararTactil();
     }
@@ -583,8 +615,15 @@ public class ReproductorActivity extends Activity {
             final boolean fav = "1".equals(favs.get(indice));
             textos.add(fav ? "☆  Quitar de favoritos" : "★  Añadir a favoritos");
             acciones.add(() -> alternarFavorito());
-            textos.add("⏺  Grabar este canal en el servidor…");
-            acciones.add(this::menuGrabar);
+            if (grabacionActivaId != null) {
+                long seg = grabacionDesde > 0 ? Math.max(0, (System.currentTimeMillis() - grabacionDesde) / 1000) : 0;
+                String t = String.format(java.util.Locale.ROOT, "%d:%02d", seg / 60, seg % 60);
+                textos.add("⏹  Parar la grabación (" + t + " grabado)");
+                acciones.add(this::pararGrabacion);
+            } else {
+                textos.add("⏺  Grabar este canal en el servidor…");
+                acciones.add(this::menuGrabar);
+            }
             if (fuentes.size() > 1) {
                 textos.add("⇄  Elegir enlace (ahora el " + (fuente + 1) + " de " + fuentes.size() + ")…");
                 acciones.add(this::menuEnlaces);
@@ -662,9 +701,77 @@ public class ReproductorActivity extends Activity {
                 b.put("de", "tele");
                 JSONObject r = enviar(casa + "/api/grabar", b.toString(), 20000);
                 msg = r.has("error") ? "No se pudo grabar: " + r.optString("error") : "⏺ Grabando " + titulo + " en el servidor (" + (minutos >= 60 ? (minutos / 60) + " h" : minutos + " min") + ")";
+                if (!r.has("error") && r.has("id")) {
+                    final String gid = r.optString("id");
+                    final long gIni = r.optLong("inicio", System.currentTimeMillis());
+                    ui.post(() -> {
+                        grabacionActivaId = gid;
+                        grabacionDesde = gIni;
+                        ui.removeCallbacks(refrescarChipRec);
+                        refrescarChipRec.run();
+                    });
+                }
             } catch (Exception e) { msg = "No se pudo grabar: el servidor de casa no responde"; }
             final String m = msg;
             ui.post(() -> { txtEstado.setText(m); mostrarPanel(6000); });
+        });
+    }
+
+    // Consulta al servidor de casa si ESTE canal se está grabando ahora mismo.
+    // Si lo está, guarda el id y arranca el chip «● REC MM:SS».
+    private void consultarGrabacion() {
+        final String casa = servidorCasa();
+        if (casa == null || indice >= titulos.size()) return;
+        final String canal = titulos.get(indice);
+        red.execute(() -> {
+            try {
+                JSONObject r = pedir(casa + "/api/grabaciones", 5000);
+                JSONArray lista = r.optJSONArray("lista");
+                String id = null; long desde = 0;
+                if (lista != null) for (int i = 0; i < lista.length(); i++) {
+                    JSONObject g = lista.optJSONObject(i);
+                    if (g == null) continue;
+                    if (!"grabando".equals(g.optString("estado"))) continue;
+                    String c = g.optString("canal", "");
+                    String t = g.optString("titulo", "");
+                    // Coincide por nombre exacto de canal o porque el título empieza con el canal
+                    if (c.equalsIgnoreCase(canal) || t.startsWith(canal + " ") || t.equalsIgnoreCase(canal)) {
+                        id = g.optString("id"); desde = g.optLong("inicio", 0); break;
+                    }
+                }
+                final String idF = id; final long desdeF = desde;
+                ui.post(() -> {
+                    grabacionActivaId = idF;
+                    grabacionDesde = desdeF;
+                    ui.removeCallbacks(refrescarChipRec);
+                    if (idF != null) refrescarChipRec.run();
+                    else if (chipRec != null) chipRec.setVisibility(View.GONE);
+                });
+            } catch (Exception ignored) { /* sin servidor: no hay chip */ }
+        });
+    }
+
+    private void pararGrabacion() {
+        final String casa = servidorCasa();
+        final String id = grabacionActivaId;
+        if (casa == null || id == null) return;
+        txtEstado.setText("Parando la grabación…");
+        mostrarPanel(4000);
+        red.execute(() -> {
+            String msg;
+            try {
+                JSONObject r = enviar(casa + "/api/grabaciones/" + id + "/parar", "{}", 10000);
+                msg = r.has("error") ? "No se pudo parar: " + r.optString("error") : "⏹ Grabación guardada en el servidor";
+            } catch (Exception e) { msg = "No se pudo parar: el servidor no responde"; }
+            final String m = msg;
+            ui.post(() -> {
+                txtEstado.setText(m);
+                mostrarPanel(5000);
+                grabacionActivaId = null;
+                grabacionDesde = 0;
+                ui.removeCallbacks(refrescarChipRec);
+                if (chipRec != null) chipRec.setVisibility(View.GONE);
+            });
         });
     }
 
@@ -710,6 +817,56 @@ public class ReproductorActivity extends Activity {
         } finally { c.disconnect(); }
     }
 
+    // Nombre amigable del idioma del audio a partir del código ISO (spa, eng, cat, und…)
+    private static String nombreIdioma(String lang) {
+        if (lang == null || lang.isEmpty() || "und".equalsIgnoreCase(lang)) return "Idioma desconocido";
+        String l = lang.toLowerCase(java.util.Locale.ROOT);
+        if (l.length() > 3) l = l.substring(0, 3);
+        switch (l) {
+            case "es": case "spa": case "esp": return "Español";
+            case "en": case "eng": return "Inglés";
+            case "fr": case "fra": case "fre": return "Francés";
+            case "de": case "deu": case "ger": return "Alemán";
+            case "it": case "ita": return "Italiano";
+            case "pt": case "por": return "Portugués";
+            case "cat": return "Catalán";
+            case "gl": case "glg": return "Gallego";
+            case "eu": case "eus": case "baq": return "Euskera";
+            case "ja": case "jpn": return "Japonés";
+            case "zh": case "chi": case "zho": return "Chino";
+            case "ar": case "ara": return "Árabe";
+            case "ru": case "rus": return "Ruso";
+            case "nl": case "nld": case "dut": return "Neerlandés";
+            default: return lang.toUpperCase(java.util.Locale.ROOT);
+        }
+    }
+
+    // Etiqueta corta visible por idioma (2 letras entre corchetes), que las teles siempre saben pintar
+    private static String marcaIdioma(String lang) {
+        if (lang == null || lang.isEmpty() || "und".equalsIgnoreCase(lang)) return "[??]";
+        String l = lang.toLowerCase(java.util.Locale.ROOT);
+        if (l.length() > 3) l = l.substring(0, 3);
+        switch (l) {
+            case "es": case "spa": case "esp": return "[ES]";
+            case "en": case "eng": return "[EN]";
+            case "fr": case "fra": case "fre": return "[FR]";
+            case "de": case "deu": case "ger": return "[DE]";
+            case "it": case "ita": return "[IT]";
+            case "pt": case "por": return "[PT]";
+            case "cat": return "[CA]";
+            case "gl": case "glg": return "[GL]";
+            case "eu": case "eus": case "baq": return "[EU]";
+            case "ja": case "jpn": return "[JA]";
+            case "zh": case "chi": case "zho": return "[ZH]";
+            case "ar": case "ara": return "[AR]";
+            case "ru": case "rus": return "[RU]";
+            case "nl": case "nld": case "dut": return "[NL]";
+            default: return "[" + lang.toUpperCase(java.util.Locale.ROOT).substring(0, Math.min(2, lang.length())) + "]";
+        }
+    }
+
+    // Menú de sonido: solo pistas, con etiqueta clara por idioma, códec y canales.
+    // Los ajustes avanzados (convertir sonido en servidor, formato HLS/TS) van a otro paso con ⚙.
     private void opcionesSonido() {
         if (player == null) return;
         mostrarPanel(8000);
@@ -721,11 +878,12 @@ public class ReproductorActivity extends Activity {
             for (int i = 0; i < g.length; i++) {
                 androidx.media3.common.Format f = g.getTrackFormat(i);
                 n++;
+                boolean sel = g.isTrackSelected(i);
                 boolean ok = g.isTrackSupported(i, true);
-                String txt = (g.isTrackSelected(i) ? "✓ " : "") + "Pista " + n + ": " + (f.language != null && !f.language.equals("und") ? f.language + " · " : "")
-                    + nombreAudio(f.sampleMimeType) + (f.channelCount > 2 ? " " + f.channelCount + " canales" : "") + (ok ? "" : " — esta tele no la reproduce");
+                String canales = f.channelCount >= 6 ? " 5.1" : f.channelCount == 2 ? " estéreo" : f.channelCount == 1 ? " mono" : (f.channelCount > 0 ? " " + f.channelCount + "ch" : "");
+                String txt = (sel ? "✓  " : "    ") + marcaIdioma(f.language) + "  " + nombreIdioma(f.language) + "  ·  " + nombreAudio(f.sampleMimeType) + canales + (ok ? "" : "   (esta tele no la lee)");
                 textos.add(txt);
-                final int fi = i; final Tracks.Group fg = g; final String nom = "Pista " + n;
+                final int fi = i; final Tracks.Group fg = g; final String nom = nombreIdioma(f.language);
                 acciones.add(() -> {
                     player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                         .setOverrideForType(new androidx.media3.common.TrackSelectionOverride(fg.getMediaTrackGroup(), fi)).build());
@@ -734,11 +892,25 @@ public class ReproductorActivity extends Activity {
             }
         }
         if (n == 0) { textos.add("Este enlace no trae pistas de sonido"); acciones.add(() -> {}); }
+        textos.add("⚙   Más ajustes (convertir sonido, cambiar formato)…");
+        acciones.add(this::masAjustesSonido);
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Pistas de sonido")
+            .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
+            .setNegativeButton("Cerrar", null)
+            .show();
+    }
+
+    // Ajustes avanzados (los que antes estaban mezclados con las pistas): convertir en el servidor y formato
+    private void masAjustesSonido() {
+        mostrarPanel(8000);
+        java.util.List<String> textos = new ArrayList<>();
+        java.util.List<Runnable> acciones = new ArrayList<>();
         final String id = fuentes.isEmpty() ? null : fuentes.get(fuente)[0];
         final String directa = fuentes.isEmpty() ? null : fuentes.get(fuente)[1];
         if (id != null && (directa == null || directa.isEmpty()) && servidorCasa() != null) {
             final boolean conv = soloAac.contains(id);
-            textos.add(conv ? "Volver al sonido original (sin convertir)" : "¿No se oye? Convertir el sonido en el servidor");
+            textos.add(conv ? "🔄   Volver al sonido original (sin convertir)" : "🔧   ¿No se oye? Convertir el sonido en el servidor");
             acciones.add(() -> {
                 if (conv) soloAac.remove(id); else { soloAac.add(id); aacFallido.remove(id); }
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("soloAac", new java.util.HashSet<>(soloAac)).apply();
@@ -749,12 +921,12 @@ public class ReproductorActivity extends Activity {
             });
         }
         if (directa == null || directa.isEmpty()) {
-            textos.add("Probar en formato " + ("hls".equals(formato) ? "TS (continuo)" : "HLS (troceado)"));
+            textos.add("⇄   Probar en formato " + ("hls".equals(formato) ? "TS (continuo)" : "HLS (troceado)"));
             acciones.add(this::alternarFormato);
         }
-        if (fuentes.size() > 1) { textos.add("Probar otro enlace (" + fuentes.size() + " en total)"); acciones.add(() -> cambiarFuente(1)); }
+        if (textos.isEmpty()) { textos.add("No hay ajustes adicionales para este enlace"); acciones.add(() -> {}); }
         new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Sonido y formato")
+            .setTitle("Más ajustes de sonido")
             .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
             .setNegativeButton("Cerrar", null)
             .show();
@@ -1081,6 +1253,11 @@ public class ReproductorActivity extends Activity {
         indice = (indice + paso + ids.size()) % ids.size();
         prepararFuentes();
         rotular();
+        // Al cambiar de canal se olvida la grabación del canal anterior y se mira si el nuevo también se graba
+        grabacionActivaId = null; grabacionDesde = 0;
+        ui.removeCallbacks(refrescarChipRec);
+        if (chipRec != null) chipRec.setVisibility(View.GONE);
+        consultarGrabacion();
         txtZap.setText((indice + 1) + "   " + titulos.get(indice));
         txtZap.setVisibility(View.VISIBLE);
         ui.removeCallbacks(ocultarZap);
