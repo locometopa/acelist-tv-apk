@@ -160,6 +160,9 @@ public class ReproductorActivity extends Activity {
     // Canales cuyo sonido no entiende la tele (AC3, E-AC3…): se piden al servidor de casa, que lo convierte a AAC
     private java.util.Set<String> soloAac = new java.util.HashSet<>();
     private final java.util.Set<String> aacFallido = new java.util.HashSet<>();   // la conversión no fue posible (en esta sesión)
+    // Películas de carpetas con audio raro (AC3, DTS…) que se piden por /carpetas-aac/ en vez de /carpetas/.
+    // Se guardan por la ruta /carpetas/<id>/<subruta> (sin host) para que sobreviva entre reinicios del servidor.
+    private java.util.Set<String> pelisAac = new java.util.HashSet<>();
     private final Runnable vigiaImagen = new Runnable() {
         @Override public void run() { revisarImagen(); ui.postDelayed(this, 2000); }
     };
@@ -196,6 +199,7 @@ public class ReproductorActivity extends Activity {
         urlBloqueo = getIntent().getStringExtra(EXTRA_BLOQUEO);
         soloHls = new java.util.HashSet<>(getSharedPreferences(PREFS, MODE_PRIVATE).getStringSet("soloHls", new java.util.HashSet<>()));
         soloAac = new java.util.HashSet<>(getSharedPreferences(PREFS, MODE_PRIVATE).getStringSet("soloAac", new java.util.HashSet<>()));
+        pelisAac = new java.util.HashSet<>(getSharedPreferences(PREFS, MODE_PRIVATE).getStringSet("pelisAac", new java.util.HashSet<>()));
         if (ids == null || ids.isEmpty()) { finish(); return; }
         if (titulos == null) titulos = new ArrayList<>(ids);
         urls = getIntent().getStringArrayListExtra(EXTRA_URLS);
@@ -390,18 +394,51 @@ public class ReproductorActivity extends Activity {
         avisoAudio = true;
         String id = fuentes.get(fuente)[0];
         String directa = fuentes.get(fuente)[1];
-        String tipo = mime == null ? "desconocido" : mime.replace("audio/", "").replace("ac3", "AC3").replace("eac3", "E-AC3").toUpperCase(java.util.Locale.ROOT);
+        String tipo = mime == null ? "desconocido" : mime.replace("audio/", "").replace("ac3", "AC3").replace("eac3", "E-AC3").replace("dts", "DTS").replace("truehd", "TrueHD").toUpperCase(java.util.Locale.ROOT);
         if (servidorCasa() != null && (directa == null || directa.isEmpty()) && !soloAac.contains(id) && !aacFallido.contains(id)) {
+            // Canal de TV con audio raro: paso por el proxy AAC del motor.
             soloAac.add(id);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("soloAac", new java.util.HashSet<>(soloAac)).apply();
             reintentos = 0;
             cargar(false);
             txtEstado.setText("La tele no reproduce el sonido de este canal (" + tipo + "): pasándolo por el servidor…");
             mostrarPanel(0);
+        } else if (directa != null && !directa.isEmpty() && esRutaCarpeta(directa) && !pelisAac.contains(rutaCarpeta(directa))) {
+            // Película de carpeta con audio raro: paso por /carpetas-aac/ y así ffmpeg lo convierte.
+            String ruta = rutaCarpeta(directa);
+            pelisAac.add(ruta);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("pelisAac", new java.util.HashSet<>(pelisAac)).apply();
+            reintentos = 0;
+            cargar(false);
+            txtEstado.setText("Esta tele no reproduce el sonido (" + tipo + "): pasándolo por el servidor…");
+            mostrarPanel(0);
         } else {
-            txtEstado.setText("Se ve, pero esta tele no reproduce el sonido de este canal (" + tipo + "). Prueba otro enlace o VLC.");
+            txtEstado.setText("Se ve, pero esta tele no reproduce el sonido (" + tipo + "). Prueba otro enlace o VLC.");
             mostrarPanel(0);
         }
+    }
+
+    // Si la URL es un vídeo /carpetas/<id>/<ruta> del servidor de casa y ese vídeo está marcado como
+    // «la tele no lee su audio», se cambia por /carpetas-aac/ para que ffmpeg lo convierta.
+    private String aacSiToca(String directa) {
+        if (directa == null || directa.isEmpty() || !esRutaCarpeta(directa)) return directa;
+        String ruta = rutaCarpeta(directa);
+        if (!pelisAac.contains(ruta)) return directa;
+        return directa.replace("/carpetas/", "/carpetas-aac/");
+    }
+
+    private boolean esRutaCarpeta(String url) {
+        String casa = servidorCasa();
+        if (casa == null || url == null) return false;
+        try {
+            String host = new URL(url).getHost();
+            String hostCasa = new URL(casa).getHost();
+            return host != null && host.equalsIgnoreCase(hostCasa) && new URL(url).getPath().startsWith("/carpetas/");
+        } catch (Exception e) { return false; }
+    }
+
+    private String rutaCarpeta(String url) {
+        try { return new URL(url).getPath(); } catch (Exception e) { return ""; }
     }
 
     private void videoNoCompatible(String mime) {
@@ -924,6 +961,20 @@ public class ReproductorActivity extends Activity {
             textos.add("⇄   Probar en formato " + ("hls".equals(formato) ? "TS (continuo)" : "HLS (troceado)"));
             acciones.add(this::alternarFormato);
         }
+        // Peli de carpeta: activar o desactivar la conversión del sonido en el servidor.
+        if (directa != null && !directa.isEmpty() && esRutaCarpeta(directa)) {
+            final String ruta = rutaCarpeta(directa);
+            final boolean conv = pelisAac.contains(ruta);
+            textos.add(conv ? "🔄   Volver al sonido original (sin convertir)" : "🔧   ¿No se oye? Convertir el sonido en el servidor");
+            acciones.add(() -> {
+                if (conv) pelisAac.remove(ruta); else pelisAac.add(ruta);
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet("pelisAac", new java.util.HashSet<>(pelisAac)).apply();
+                avisoAudio = conv;
+                reintentos = 0;
+                cargar(false);
+                txtEstado.setText(conv ? "Volviendo al sonido original…" : "Pasando el sonido por el servidor…");
+            });
+        }
         if (textos.isEmpty()) { textos.add("No hay ajustes adicionales para este enlace"); acciones.add(() -> {}); }
         new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle("Más ajustes de sonido")
@@ -1069,12 +1120,16 @@ public class ReproductorActivity extends Activity {
         final String id = fuentes.get(fuente)[0];
         final String directa = fuentes.get(fuente)[1];
         if (directa != null && !directa.isEmpty()) {
-            // Canal de TV normal (HLS): sin motor de Ace Stream
+            // Canal de TV normal (HLS) o película de carpeta del servidor: sin motor de Ace Stream.
+            // Si es una peli marcada por no tener audio compatible, se pide por /carpetas-aac/ para
+            // que el servidor recodifique el sonido a AAC.
             if (anteriorCmd != null) red.execute(() -> parar(anteriorCmd));
-            player.setMediaItem(MediaItem.fromUri(Uri.parse(directa)));
+            final String url = aacSiToca(directa);
+            final boolean conAac = !url.equals(directa);
+            player.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
             player.prepare();
             player.setPlayWhenReady(true);
-            txtEstado.setText("Emisión en abierto");
+            txtEstado.setText(conAac ? "Sonido convertido en el servidor" : "Emisión en abierto");
             ui.postDelayed(vigilante, 30000);
             return;
         }
