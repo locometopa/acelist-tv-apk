@@ -36,6 +36,15 @@ jobs:
       - name: Dependencias
         run: npm ci
 
+      - name: Sincronizar la versión en www/js/app.js con la de package.json
+        # La tele guarda la versión que tiene en una constante del propio app.js.
+        # Si se queda desfasada con package.json, la tele cree siempre que hay actualización y entra en bucle.
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "Versión a inyectar en app.js: $V"
+          sed -i "s/const VERSION = '[^']*';/const VERSION = '$V';/" www/js/app.js
+          grep -n "^const VERSION" www/js/app.js
+
       - name: Copiar la web al proyecto Android
         run: npx cap sync android
 
