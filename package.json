@@ -1,6 +1,6 @@
 {
   "name": "acelist-tv",
-  "version": "0.70.5",
+  "version": "0.70.6",
   "private": true,
   "description": "Catálogo de canales Acestream para Google TV (basado en AceList)",
   "scripts": {

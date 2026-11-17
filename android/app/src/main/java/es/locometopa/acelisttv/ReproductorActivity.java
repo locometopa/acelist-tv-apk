@@ -113,6 +113,8 @@ public class ReproductorActivity extends Activity {
     private PlayerView vista;
     private LinearLayout panel;
     private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap, btnOpciones, chipRec, tituloArriba;
+    private FrameLayout raiz;
+    private FrameLayout menuActual = null;
     // Grabación activa del canal que se está viendo: id en el servidor y ms epoch del inicio
     private volatile String grabacionActivaId = null;
     private volatile long grabacionDesde = 0;
@@ -464,7 +466,7 @@ public class ReproductorActivity extends Activity {
     }
 
     private void construirVista() {
-        FrameLayout raiz = new FrameLayout(this);
+        raiz = new FrameLayout(this);
         raiz.setBackgroundColor(Color.BLACK);
 
         vista = new PlayerView(this);
@@ -724,11 +726,7 @@ public class ReproductorActivity extends Activity {
         }
         textos.add("←  Salir a la lista de canales");
         acciones.add(this::finish);
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(titulos.get(indice))
-            .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
-            .setNegativeButton("Cerrar", null)
-            .show();
+        mostrarMenu(titulos.get(indice), textos, acciones);
     }
 
     // El favorito se apunta aquí y la app lo aplica (y lo comparte con el servidor) al volver a la lista
@@ -745,16 +743,135 @@ public class ReproductorActivity extends Activity {
         mostrarPanel(4000);
     }
 
+    // ---------- Menú custom, con el estilo de HomeTV (sustituye los AlertDialog del sistema) ----------
+    // Pensado para mando: foco visible, botones grandes, cierre con Atrás, y se sobreimprime sobre el vídeo.
+    private void mostrarMenu(String titulo, java.util.List<String> textos, java.util.List<Runnable> acciones) {
+        cerrarMenu();
+        if (raiz == null) return;
+        // Si estamos en modo archivo con los controles nativos visibles, se ocultan para que no roben foco
+        if (vista != null && vista.getUseController()) vista.hideController();
+        // Capa que oscurece el vídeo mientras el menú está abierto
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0xB3000000);
+        overlay.setFocusable(false);
+        overlay.setClickable(true);
+        overlay.setOnClickListener(v -> cerrarMenu());
+
+        // Caja con el menú: fondo oscuro HomeTV, borde redondeado, borde sutil blanco
+        LinearLayout caja = new LinearLayout(this);
+        caja.setOrientation(LinearLayout.VERTICAL);
+        caja.setPadding(44, 36, 44, 32);
+        GradientDrawable fondoCaja = new GradientDrawable();
+        fondoCaja.setColor(0xF2161B22);
+        fondoCaja.setCornerRadius(40);
+        fondoCaja.setStroke(2, 0x33FFFFFF);
+        caja.setBackground(fondoCaja);
+        // La caja no roba el foco (los botones sí); si se pulsa fuera en la caja, no cierra
+        caja.setClickable(true);
+
+        TextView tit = new TextView(this);
+        tit.setText(titulo);
+        tit.setTextSize(22);
+        tit.setTextColor(0xFFF0F6FC);
+        tit.setTypeface(Typeface.DEFAULT_BOLD);
+        tit.setPadding(12, 4, 12, 16);
+        caja.addView(tit);
+
+        View sep = new View(this);
+        sep.setBackgroundColor(0x1AFFFFFF);
+        LinearLayout.LayoutParams sepLp = new LinearLayout.LayoutParams(-1, 2);
+        sepLp.bottomMargin = 10;
+        caja.addView(sep, sepLp);
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.setFillViewport(false);
+        // En la tele las flechas ya navegan de botón en botón; evitamos que el ScrollView intercepte el foco
+        sv.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        LinearLayout items = new LinearLayout(this);
+        items.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(items);
+
+        TextView primero = null;
+        for (int i = 0; i < textos.size(); i++) {
+            TextView btn = menuBoton(textos.get(i));
+            final int idx = i;
+            btn.setOnClickListener(v -> {
+                cerrarMenu();
+                try { acciones.get(idx).run(); } catch (Exception ignored) { /* la acción ya se cerró */ }
+            });
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+            blp.topMargin = 6; blp.bottomMargin = 6;
+            items.addView(btn, blp);
+            if (primero == null) primero = btn;
+        }
+
+        TextView hint = new TextView(this);
+        hint.setText("Atrás para volver");
+        hint.setTextSize(13);
+        hint.setTextColor(0x998B949E);
+        hint.setPadding(12, 16, 12, 0);
+        hint.setGravity(Gravity.END);
+
+        caja.addView(sv, new LinearLayout.LayoutParams(-1, -2, 1f));
+        caja.addView(hint);
+
+        // Ancho máximo cómodo para TV, centrado, con márgenes verticales
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(960, -2, Gravity.CENTER);
+        clp.topMargin = 60; clp.bottomMargin = 60;
+        overlay.addView(caja, clp);
+
+        raiz.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        menuActual = overlay;
+        final TextView primerBtn = primero;
+        if (primerBtn != null) overlay.post(() -> primerBtn.requestFocus());
+    }
+
+    private TextView menuBoton(String texto) {
+        TextView btn = new TextView(this);
+        btn.setText(texto);
+        btn.setTextSize(18);
+        btn.setPadding(36, 26, 36, 26);
+        btn.setFocusable(true);
+        btn.setFocusableInTouchMode(false);
+        btn.setClickable(true);
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(0x14FFFFFF);
+        normal.setCornerRadius(28);
+        GradientDrawable focused = new GradientDrawable();
+        focused.setColor(0xFF58A6FF);
+        focused.setCornerRadius(28);
+        android.graphics.drawable.StateListDrawable sld = new android.graphics.drawable.StateListDrawable();
+        sld.addState(new int[]{ android.R.attr.state_focused }, focused);
+        sld.addState(new int[]{ android.R.attr.state_pressed }, focused);
+        sld.addState(new int[]{}, normal);
+        btn.setBackground(sld);
+        android.content.res.ColorStateList cols = new android.content.res.ColorStateList(
+            new int[][]{ { android.R.attr.state_focused }, new int[0] },
+            new int[]{ Color.BLACK, 0xFFF0F6FC });
+        btn.setTextColor(cols);
+        return btn;
+    }
+
+    private boolean cerrarMenu() {
+        if (menuActual == null || raiz == null) return false;
+        raiz.removeView(menuActual);
+        menuActual = null;
+        return true;
+    }
+
     private void menuGrabar() {
         final String casa = servidorCasa();
         if (casa == null) { txtEstado.setText("Para grabar hace falta el servidor de casa (Ajustes de la app)"); mostrarPanel(5000); return; }
-        final String[] textos = { "30 minutos", "1 hora", "2 horas", "3 horas", "Hasta que lo pare (máx. 8 horas)" };
+        final String[] textos = { "⏱  30 minutos", "⏱  1 hora", "⏱  2 horas", "⏱  3 horas", "⏺  Hasta que lo pare (máx. 8 horas)" };
         final int[] minutos = { 30, 60, 120, 180, 480 };
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Grabar " + titulos.get(indice))
-            .setItems(textos, (d, w) -> grabar(casa, minutos[w]))
-            .setNegativeButton("Cancelar", null)
-            .show();
+        java.util.List<String> lt = new ArrayList<>();
+        java.util.List<Runnable> la = new ArrayList<>();
+        for (int i = 0; i < textos.length; i++) {
+            final int m = minutos[i];
+            lt.add(textos[i]);
+            la.add(() -> grabar(casa, m));
+        }
+        mostrarMenu("Grabar " + titulos.get(indice), lt, la);
     }
 
     private void grabar(String casa, int minutos) {
@@ -856,28 +973,27 @@ public class ReproductorActivity extends Activity {
 
     private void menuEnlaces() {
         final String[] textos = new String[fuentes.size()];
+        java.util.List<String> lt = new ArrayList<>();
+        java.util.List<Runnable> la = new ArrayList<>();
         for (int i = 0; i < fuentes.size(); i++) {
             String[] f = fuentes.get(i);
             boolean abierto = f[1] != null && !f[1].isEmpty();
-            textos[i] = (i == fuente ? "✓ " : "    ") + "Enlace " + (i + 1) + " · " + (abierto ? "en abierto" : "Ace Stream " + f[0].substring(0, Math.min(6, f[0].length())));
+            lt.add((i == fuente ? "✓  " : "    ") + "Enlace " + (i + 1) + " · " + (abierto ? "en abierto" : "Ace Stream " + f[0].substring(0, Math.min(6, f[0].length()))));
+            final int w = i;
+            la.add(() -> { if (w != fuente) { fuente = w; reintentos = 0; vueltas = 0; cargar(false); } });
         }
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Enlaces de " + titulos.get(indice))
-            .setItems(textos, (d, w) -> { if (w != fuente) { fuente = w; reintentos = 0; vueltas = 0; cargar(false); } })
-            .setNegativeButton("Cerrar", null)
-            .show();
+        mostrarMenu("Enlaces de " + titulos.get(indice), lt, la);
     }
 
     private void menuCanales() {
-        final String[] textos = new String[ids.size()];
-        for (int i = 0; i < ids.size(); i++) textos[i] = (i == indice ? "▶ " : "") + ("1".equals(favs.get(i)) ? "★ " : "") + titulos.get(i);
-        android.app.AlertDialog d = new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Canales")
-            .setItems(textos, (x, w) -> { if (w != indice) zap(w - indice); })
-            .setNegativeButton("Cerrar", null)
-            .create();
-        d.show();
-        try { d.getListView().setSelection(indice); } catch (Exception ignored) { }
+        java.util.List<String> lt = new ArrayList<>();
+        java.util.List<Runnable> la = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            lt.add((i == indice ? "▶  " : "    ") + ("1".equals(favs.get(i)) ? "★ " : "") + titulos.get(i));
+            final int w = i;
+            la.add(() -> { if (w != indice) zap(w - indice); });
+        }
+        mostrarMenu("Canales", lt, la);
     }
 
     private static JSONObject enviar(String url, String cuerpo, int timeout) throws Exception {
@@ -973,11 +1089,7 @@ public class ReproductorActivity extends Activity {
         if (n == 0) { textos.add("Este enlace no trae pistas de sonido"); acciones.add(() -> {}); }
         textos.add("⚙   Más ajustes (convertir sonido, cambiar formato)…");
         acciones.add(this::masAjustesSonido);
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Pistas de sonido")
-            .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
-            .setNegativeButton("Cerrar", null)
-            .show();
+        mostrarMenu("Pistas de sonido", textos, acciones);
     }
 
     // Ajustes avanzados (los que antes estaban mezclados con las pistas): convertir en el servidor y formato
@@ -1018,11 +1130,7 @@ public class ReproductorActivity extends Activity {
             });
         }
         if (textos.isEmpty()) { textos.add("No hay ajustes adicionales para este enlace"); acciones.add(() -> {}); }
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Más ajustes de sonido")
-            .setItems(textos.toArray(new String[0]), (d, w) -> acciones.get(w).run())
-            .setNegativeButton("Cerrar", null)
-            .show();
+        mostrarMenu("Más ajustes de sonido", textos, acciones);
     }
 
     private void mostrarPanel(long ms) {
@@ -1368,6 +1476,15 @@ public class ReproductorActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Mientras un menú propio esté abierto, Atrás lo cierra sin salir del reproductor;
+        // los DPAD se los deja gestionar a los botones del menú.
+        if (menuActual != null) {
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                cerrarMenu();
+                return true;
+            }
+            return super.onKeyDown(keyCode, event);
+        }
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
             case KeyEvent.KEYCODE_CHANNEL_UP:
