@@ -734,7 +734,8 @@ public class ReproductorActivity extends Activity {
     }
 
     // Lista de todas las grabaciones del servidor con opción de parar o borrar.
-    // Permite deshacerse de grabaciones «fantasma» o antiguas sin tener que ir al panel web.
+    // Incluye también las «huérfanas»: ficheros .mkv/.ts/.mp4 que quedaron en el disco sin entrada en
+    // grabaciones.json (p. ej. porque se cortó una grabación). El panel web no las ve; aquí sí.
     private void menuGrabaciones() {
         final String casa = servidorCasa();
         if (casa == null) { txtEstado.setText("Para esto hace falta el servidor de casa"); mostrarPanel(4000); return; }
@@ -742,49 +743,70 @@ public class ReproductorActivity extends Activity {
         red.execute(() -> {
             java.util.List<String> lt = new ArrayList<>();
             java.util.List<Runnable> la = new ArrayList<>();
+            int totales = 0;
+            // 1) Grabaciones «normales» (con entrada en grabaciones.json)
             try {
                 JSONObject r = pedir(casa + "/api/grabaciones", 8000);
                 JSONArray lista = r.optJSONArray("lista");
-                if (lista == null || lista.length() == 0) {
-                    lt.add("No hay ninguna grabación");
-                    la.add(() -> {});
-                } else {
-                    for (int i = 0; i < lista.length(); i++) {
-                        JSONObject g = lista.optJSONObject(i);
-                        if (g == null) continue;
-                        final String id = g.optString("id");
-                        final String tit = g.optString("titulo", g.optString("canal", id));
-                        final String estado = g.optString("estado", "");
-                        final long bytes = g.optLong("bytes", 0);
-                        String icono = "grabando".equals(estado) ? "⏺ "
-                            : "programada".equals(estado) ? "🕒 "
-                            : "hecha".equals(estado) || "ok".equals(estado) ? "✓ "
-                            : "cancelada".equals(estado) || "parada".equals(estado) ? "✕ "
-                            : "fallida".equals(estado) ? "! " : "• ";
-                        String info = estado.isEmpty() ? "" : "  ·  " + estado;
-                        if (bytes > 0) info += "  ·  " + (bytes / 1048576L) + " MB";
-                        lt.add(icono + tit + info);
-                        la.add(() -> menuAccionGrabacion(casa, id, tit, estado));
-                    }
+                if (lista != null) for (int i = 0; i < lista.length(); i++) {
+                    JSONObject g = lista.optJSONObject(i);
+                    if (g == null) continue;
+                    final String id = g.optString("id");
+                    final String tit = g.optString("titulo", g.optString("canal", id));
+                    final String estado = g.optString("estado", "");
+                    final long bytes = g.optLong("bytes", 0);
+                    String icono = "grabando".equals(estado) ? "⏺ "
+                        : "programada".equals(estado) ? "🕒 "
+                        : "hecha".equals(estado) || "ok".equals(estado) ? "✓ "
+                        : "cancelada".equals(estado) || "parada".equals(estado) ? "✕ "
+                        : "fallida".equals(estado) ? "! " : "• ";
+                    String info = estado.isEmpty() ? "" : "  ·  " + estado;
+                    if (bytes > 0) info += "  ·  " + (bytes / 1048576L) + " MB";
+                    lt.add(icono + tit + info);
+                    la.add(() -> menuAccionGrabacion(casa, id, tit, estado, false));
+                    totales++;
                 }
             } catch (Exception e) {
                 lt.add("No se pudo cargar: " + e.getMessage());
+                la.add(() -> {});
+            }
+            // 2) Archivos huérfanos (sin entrada en grabaciones.json pero sí en el disco del servidor)
+            try {
+                JSONObject r = pedir(casa + "/api/grabaciones-archivos", 8000);
+                JSONArray lista = r.optJSONArray("lista");
+                if (lista != null) for (int i = 0; i < lista.length(); i++) {
+                    JSONObject g = lista.optJSONObject(i);
+                    if (g == null) continue;
+                    final String nombre = g.optString("nombre");
+                    final long bytes = g.optLong("bytes", 0);
+                    String info = "  ·  archivo huérfano";
+                    if (bytes > 0) info += "  ·  " + (bytes / 1048576L) + " MB";
+                    lt.add("🗃 " + nombre + info);
+                    la.add(() -> menuAccionGrabacion(casa, nombre, nombre, "huerfana", true));
+                    totales++;
+                }
+            } catch (Exception ignored) { /* si este endpoint no está, no se añaden */ }
+            if (totales == 0) {
+                lt.add("No hay ninguna grabación");
                 la.add(() -> {});
             }
             ui.post(() -> mostrarMenu("Grabaciones del servidor", lt, la));
         });
     }
 
-    // Acciones sobre una grabación concreta: parar si está grabando, o borrar en cualquier estado.
-    private void menuAccionGrabacion(String casa, String id, String tit, String estado) {
+    // Acciones sobre una grabación concreta: parar si está grabando, borrar normal o borrar archivo huérfano.
+    private void menuAccionGrabacion(String casa, String idOrFile, String tit, String estado, boolean huerfana) {
         java.util.List<String> lt = new ArrayList<>();
         java.util.List<Runnable> la = new ArrayList<>();
-        if ("grabando".equals(estado) || "programada".equals(estado)) {
+        if (!huerfana && ("grabando".equals(estado) || "programada".equals(estado))) {
             lt.add("⏹  Parar y guardar");
-            la.add(() -> enviarGrab(casa + "/api/grabaciones/" + id + "/parar", "POST", "Parando…", "Parada y guardada"));
+            la.add(() -> enviarGrab(casa + "/api/grabaciones/" + idOrFile + "/parar", "POST", "Parando…", "Parada y guardada"));
         }
-        lt.add("🗑  Borrar esta grabación (del servidor)");
-        la.add(() -> enviarGrab(casa + "/api/grabaciones/" + id, "DELETE", "Borrando…", "Grabación borrada"));
+        final String ruta = huerfana
+            ? casa + "/api/grabaciones-archivos/" + android.net.Uri.encode(idOrFile)
+            : casa + "/api/grabaciones/" + idOrFile;
+        lt.add(huerfana ? "🗑  Borrar este archivo del servidor" : "🗑  Borrar esta grabación (del servidor)");
+        la.add(() -> enviarGrab(ruta, "DELETE", "Borrando…", huerfana ? "Archivo borrado" : "Grabación borrada"));
         lt.add("← Volver a la lista");
         la.add(this::menuGrabaciones);
         mostrarMenu(tit, lt, la);
