@@ -8,7 +8,7 @@ import { crearAgenda, claveCanal } from './agenda.js';
 import { calidad } from './reglas.js';
 import { crearGuia } from './guia.js';
 
-const VERSION = '0.70.8';
+const VERSION = '0.70.9';
 const cap = window.Capacitor;
 const NATIVE = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
 // Plugins nativos (solo existen en la APK)
@@ -399,6 +399,23 @@ async function openWith(app, c, list) {
     });
     const items = (list && list.length ? list : listaZapping()).map(item);
     if (!items.some((x) => x.id === c.id)) items.unshift(item(c));
+    // Antes de arrancar: confirmar qué motor usar. Si el del servidor no responde (o ya no se responde),
+    // se activa el fallback al motor local de la tele (127.0.0.1:6878) para no abrir el reproductor con
+    // una URL muerta. Timeout corto (2 s) para que no añada apenas latencia.
+    if (store.settings.servidorCasa && store.settings.engineUrl !== MOTOR_TELE) {
+      try {
+        await new Engine(store.settings.engineUrl, { timeout: 2000 }).version();
+        if (ui.motorReserva) { ui.motorReserva = false; engine = makeEngine(); }
+      } catch {
+        if (!ui.motorReserva) {
+          try {
+            await new Engine(MOTOR_TELE, { timeout: 2000 }).version();
+            ui.motorReserva = true; engine = makeEngine();
+            toast('El servidor no responde: usando el motor de la tele', 'warn');
+          } catch { /* ninguno responde; se intenta de todos modos y el reproductor dirá si falla */ }
+        }
+      }
+    }
     try {
       if (bloqueada()) return;
       await plugins.Nativo.reproducir({ items, index: items.findIndex((x) => x.id === c.id), motor: motorUrl(), formato: store.settings.formatoStream || 'ts',
@@ -3505,7 +3522,16 @@ async function renderCarpetas(foco = false) {
     const l = carp.lista || [];
     html = `<h1 class="sec-tit">Carpetas</h1>`
       + (carp.error ? `<p class="bad-text">${esc(carp.error)}</p>` : '')
-      + (l.length ? l.map((c) => fila(c.id, c.fija ? '⏺' : c.tipo === 'jellyfin' ? '🎞' : '📁', c.nombre, c.tipo === 'jellyfin' ? 'Jellyfin' : c.existe ? `${c.elementos} elementos` : 'No disponible ahora', `data-carp="${esc(c.id)}" data-nombre="${esc(c.nombre)}"`)).join('')
+      + (l.length ? l.map((c) => {
+          const ico = c.fija ? '⏺' : c.tipo === 'jellyfin' ? '🎞' : c.esRed ? '💻' : '📁';
+          let sub = 'Jellyfin';
+          if (c.tipo !== 'jellyfin') {
+            if (c.esRed && c.encendido === true) sub = c.existe ? `● Encendido · ${c.elementos} elementos` : '● Encendido · montando…';
+            else if (c.esRed && c.encendido === false) sub = '● Apagado';
+            else sub = c.existe ? `${c.elementos} elementos` : 'No disponible ahora';
+          }
+          return fila(c.id, ico, c.nombre + (c.equipo ? ` (${c.equipo})` : ''), sub, `data-carp="${esc(c.id)}" data-nombre="${esc(c.nombre)}"`);
+        }).join('')
         : '<div class="empty"><p>Aún no hay carpetas. Añádelas en el panel del servidor → Carpetas.</p></div>');
   } else {
     const d = carp.datos;
