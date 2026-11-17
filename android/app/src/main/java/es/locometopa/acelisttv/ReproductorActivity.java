@@ -720,6 +720,10 @@ public class ReproductorActivity extends Activity {
         acciones.add(this::recolocar);
         textos.add("ⓘ  Ver información del enlace (peers, velocidad)");
         acciones.add(() -> mostrarPanel(10000));
+        if (servidorCasa() != null) {
+            textos.add("📼  Gestionar grabaciones del servidor…");
+            acciones.add(this::menuGrabaciones);
+        }
         if (ids.size() > 1) {
             textos.add("☰  Ir a otro canal de la lista…");
             acciones.add(this::menuCanales);
@@ -727,6 +731,85 @@ public class ReproductorActivity extends Activity {
         textos.add("←  Salir a la lista de canales");
         acciones.add(this::finish);
         mostrarMenu(titulos.get(indice), textos, acciones);
+    }
+
+    // Lista de todas las grabaciones del servidor con opción de parar o borrar.
+    // Permite deshacerse de grabaciones «fantasma» o antiguas sin tener que ir al panel web.
+    private void menuGrabaciones() {
+        final String casa = servidorCasa();
+        if (casa == null) { txtEstado.setText("Para esto hace falta el servidor de casa"); mostrarPanel(4000); return; }
+        txtEstado.setText("Cargando grabaciones…"); mostrarPanel(4000);
+        red.execute(() -> {
+            java.util.List<String> lt = new ArrayList<>();
+            java.util.List<Runnable> la = new ArrayList<>();
+            try {
+                JSONObject r = pedir(casa + "/api/grabaciones", 8000);
+                JSONArray lista = r.optJSONArray("lista");
+                if (lista == null || lista.length() == 0) {
+                    lt.add("No hay ninguna grabación");
+                    la.add(() -> {});
+                } else {
+                    for (int i = 0; i < lista.length(); i++) {
+                        JSONObject g = lista.optJSONObject(i);
+                        if (g == null) continue;
+                        final String id = g.optString("id");
+                        final String tit = g.optString("titulo", g.optString("canal", id));
+                        final String estado = g.optString("estado", "");
+                        final long bytes = g.optLong("bytes", 0);
+                        String icono = "grabando".equals(estado) ? "⏺ "
+                            : "programada".equals(estado) ? "🕒 "
+                            : "hecha".equals(estado) || "ok".equals(estado) ? "✓ "
+                            : "cancelada".equals(estado) || "parada".equals(estado) ? "✕ "
+                            : "fallida".equals(estado) ? "! " : "• ";
+                        String info = estado.isEmpty() ? "" : "  ·  " + estado;
+                        if (bytes > 0) info += "  ·  " + (bytes / 1048576L) + " MB";
+                        lt.add(icono + tit + info);
+                        la.add(() -> menuAccionGrabacion(casa, id, tit, estado));
+                    }
+                }
+            } catch (Exception e) {
+                lt.add("No se pudo cargar: " + e.getMessage());
+                la.add(() -> {});
+            }
+            ui.post(() -> mostrarMenu("Grabaciones del servidor", lt, la));
+        });
+    }
+
+    // Acciones sobre una grabación concreta: parar si está grabando, o borrar en cualquier estado.
+    private void menuAccionGrabacion(String casa, String id, String tit, String estado) {
+        java.util.List<String> lt = new ArrayList<>();
+        java.util.List<Runnable> la = new ArrayList<>();
+        if ("grabando".equals(estado) || "programada".equals(estado)) {
+            lt.add("⏹  Parar y guardar");
+            la.add(() -> enviarGrab(casa + "/api/grabaciones/" + id + "/parar", "POST", "Parando…", "Parada y guardada"));
+        }
+        lt.add("🗑  Borrar esta grabación (del servidor)");
+        la.add(() -> enviarGrab(casa + "/api/grabaciones/" + id, "DELETE", "Borrando…", "Grabación borrada"));
+        lt.add("← Volver a la lista");
+        la.add(this::menuGrabaciones);
+        mostrarMenu(tit, lt, la);
+    }
+
+    private void enviarGrab(String url, String metodo, String msgIr, String msgOk) {
+        txtEstado.setText(msgIr); mostrarPanel(4000);
+        red.execute(() -> {
+            String out;
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                c.setRequestMethod(metodo);
+                if ("POST".equals(metodo)) { c.setDoOutput(true); c.getOutputStream().write("{}".getBytes(StandardCharsets.UTF_8)); }
+                int code = c.getResponseCode();
+                c.disconnect();
+                out = code < 400 ? msgOk : "Error " + code;
+            } catch (Exception e) { out = "No se pudo: " + e.getMessage(); }
+            final String m = out;
+            ui.post(() -> { txtEstado.setText(m); mostrarPanel(5000);
+                // Si la que se paró/borró era la del canal actual, refresca el chip REC.
+                consultarGrabacion();
+            });
+        });
     }
 
     // El favorito se apunta aquí y la app lo aplica (y lo comparte con el servidor) al volver a la lista
