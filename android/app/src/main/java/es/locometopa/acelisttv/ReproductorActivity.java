@@ -112,7 +112,7 @@ public class ReproductorActivity extends Activity {
     private ExoPlayer player;
     private PlayerView vista;
     private LinearLayout panel;
-    private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap, btnOpciones, chipRec;
+    private TextView txtNumero, txtTitulo, txtEstado, txtAyuda, txtZap, btnOpciones, chipRec, tituloArriba;
     // Grabación activa del canal que se está viendo: id en el servidor y ms epoch del inicio
     private volatile String grabacionActivaId = null;
     private volatile long grabacionDesde = 0;
@@ -247,6 +247,7 @@ public class ReproductorActivity extends Activity {
                     reintentos = 0; vueltas = 0; yaSonando = true; ui.removeCallbacks(vigilante); mostrarPanel(4000);
                     if (esArchivo()) txtEstado.setText(posicion() + "  ·  ◀▶ 10 s · mantén ◀▶ 1 min · OK pausa");
                     if (!apuntado) { apuntado = true; apuntar(true, null); }
+                    aplicarModoArchivo();   // Archivo: controles Media3 nativos. Canal en vivo: HUD custom.
                 }
             }
             @Override public void onTracksChanged(Tracks tracks) {
@@ -467,10 +468,31 @@ public class ReproductorActivity extends Activity {
         raiz.setBackgroundColor(Color.BLACK);
 
         vista = new PlayerView(this);
-        vista.setUseController(false);
+        vista.setUseController(false);   // para archivos se activa dinámicamente con los controles nativos de Media3
         vista.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         vista.setKeepContentOnPlayerReset(false);
+        vista.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
+        vista.setControllerShowTimeoutMs(3500);
+        vista.setControllerHideOnTouch(true);
+        vista.setShowRewindButton(true);
+        vista.setShowFastForwardButton(true);
+        vista.setShowNextButton(false);
+        vista.setShowPreviousButton(false);
         raiz.addView(vista, new FrameLayout.LayoutParams(-1, -1));
+
+        // Título superior visible solo en modo archivo (los canales en vivo llevan su panel inferior).
+        tituloArriba = new TextView(this);
+        tituloArriba.setTextSize(26);
+        tituloArriba.setTextColor(Color.WHITE);
+        tituloArriba.setTypeface(Typeface.DEFAULT_BOLD);
+        tituloArriba.setPadding(72, 42, 72, 42);
+        tituloArriba.setShadowLayer(8, 0, 2, 0xCC000000);
+        GradientDrawable fondoTit = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[] { 0xCC000000, 0x00000000 });
+        tituloArriba.setBackground(fondoTit);
+        tituloArriba.setVisibility(View.GONE);
+        FrameLayout.LayoutParams ta = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        raiz.addView(tituloArriba, ta);
 
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -598,6 +620,26 @@ public class ReproductorActivity extends Activity {
     private boolean esArchivo() {
         return player != null && !player.isCurrentMediaItemLive() && player.isCurrentMediaItemSeekable()
             && player.getDuration() != C.TIME_UNSET && player.getDuration() > 0;
+    }
+
+    // Cambia entre dos UIs según sea peli de carpeta o canal en vivo:
+    // - Archivo: controles nativos de Media3 (barra de progreso, play/pause, ±10s, tiempos) y título limpio arriba.
+    // - Canal en vivo: HUD custom con panel de información inferior.
+    private void aplicarModoArchivo() {
+        if (vista == null) return;
+        boolean archivo = esArchivo();
+        if (archivo) {
+            if (!vista.getUseController()) { vista.setUseController(true); vista.showController(); }
+            if (panel != null) panel.setVisibility(View.GONE);
+            if (tituloArriba != null) {
+                tituloArriba.setText(indice < titulos.size() ? titulos.get(indice) : "");
+                tituloArriba.setVisibility(View.VISIBLE);
+            }
+        } else {
+            if (vista.getUseController()) vista.setUseController(false);
+            if (panel != null) panel.setVisibility(View.VISIBLE);
+            if (tituloArriba != null) tituloArriba.setVisibility(View.GONE);
+        }
     }
 
     private static String hms(long ms) {
@@ -996,6 +1038,7 @@ public class ReproductorActivity extends Activity {
         if ("hls".equals(formato)) num += (num.isEmpty() ? "" : "   ·   ") + "HLS";
         txtNumero.setText(num);
         txtTitulo.setText(titulos.get(indice));
+        if (tituloArriba != null) tituloArriba.setText(titulos.get(indice));
     }
 
     private void prepararFuentes() {
